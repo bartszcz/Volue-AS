@@ -1,0 +1,37 @@
+name: Sync HSE Newsletter to Azure DevOps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '60-Utility/Personal/**'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Push subtree to ADO
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Push subtree to Azure DevOps
+        env:
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+        run: |
+          git remote add ado \
+            "https://anything:${ADO_PAT}@dev.azure.com/Meyn-Poland/HSE-Newsletter-Manager/_git/HSE-Newsletter-Manager"
+
+          # Split the subtree into a standalone commit and force-push to ADO main.
+          # Force push is intentional: GitHub is the source of truth; ADO is deploy-only.
+          SUBTREE_SHA=$(git subtree split --prefix=60-Utility/Personal HEAD)
+          git push ado "${SUBTREE_SHA}:refs/heads/main" --force

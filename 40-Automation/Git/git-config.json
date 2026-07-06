@@ -1,0 +1,13 @@
+{
+  "protectedBranches": ["main", "master", "production"],
+  "requireConfirmationForProtectedBranches": true,
+  "enableLogging": true,
+  "logFile": "scripts/git-auto-push.log",
+  "commitMessagePrefix": "auto",
+  "enablePreCommitValidation": false,
+  "lintCommand": "",
+  "testCommand": "",
+  "maxFileSizeMB": 50,
+  "autoGenerateMessage": true,
+  "pullBeforePush": true
+}

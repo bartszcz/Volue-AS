@@ -1,0 +1,181 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.98 0.002 240);
+  --foreground: oklch(0.16 0.02 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0.02 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0.02 250);
+  /* Meyn Green Primary */
+  --primary: #00765a;
+  --primary-foreground: oklch(0.99 0 0);
+  /* Soft Green Secondary */
+  --secondary: #f2f6f5;
+  --secondary-foreground: #00765a;
+  --muted: oklch(0.95 0.005 240);
+  --muted-foreground: oklch(0.50 0.02 250);
+  /* Punchy Pink Accent */
+  --accent: #eb0069;
+  --accent-foreground: oklch(0.99 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: oklch(0.90 0.01 240);
+  --input: oklch(0.90 0.01 240);
+  /* Meyn Green Ring */
+  --ring: #00765a;
+  --chart-1: #00765a;
+  --chart-2: #eb0069;
+  --chart-3: #268acb;
+  --chart-4: #6d1d6f;
+  --chart-5: #baba0b;
+  --radius: 0.5rem;
+  /* Midnight Green Sidebar */
+  --sidebar: #2d2e32;
+  --sidebar-foreground: #f2f6f5;
+  --sidebar-primary: #00765a;
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  /* Soft Black Sidebar Accent */
+  --sidebar-accent: #004340;
+  --sidebar-accent-foreground: #f2f6f5;
+  --sidebar-border: #2d2e32;
+  --sidebar-ring: #00765a;
+  --success: #00765a;
+  --success-foreground: oklch(0.99 0 0);
+  --warning: #eb0069;
+  --warning-foreground: oklch(0.99 0 0);
+}
+
+.dark {
+  --background: #004340;
+  --foreground: #f2f6f5;
+  --card: #2d2e32;
+  --card-foreground: #f2f6f5;
+  --popover: #2d2e32;
+  --popover-foreground: #f2f6f5;
+  /* Meyn Green */
+  --primary: #00765a;
+  --primary-foreground: oklch(0.99 0 0);
+  /* Soft Green */
+  --secondary: #004340;
+  --secondary-foreground: #f2f6f5;
+  --muted: oklch(0.22 0.02 250);
+  --muted-foreground: oklch(0.65 0.02 240);
+  /* Punchy Pink */
+  --accent: #eb0069;
+  --accent-foreground: oklch(0.99 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: #2d2e32;
+  --input: #2d2e32;
+  /* Meyn Green Ring */
+  --ring: #00765a;
+  --chart-1: #00765a;
+  --chart-2: #eb0069;
+  --chart-3: #268acb;
+  --chart-4: #6d1d6f;
+  --chart-5: #baba0b;
+  /* Dark Sidebar */
+  --sidebar: #1a1b1e;
+  --sidebar-foreground: #f2f6f5;
+  --sidebar-primary: #00765a;
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: #00765a;
+  --sidebar-accent-foreground: #f2f6f5;
+  --sidebar-border: #2d2e32;
+  --sidebar-ring: #00765a;
+  --success: #00765a;
+  --success-foreground: oklch(0.99 0 0);
+  --warning: #eb0069;
+  --warning-foreground: oklch(0.99 0 0);
+}
+
+@theme inline {
+  --font-sans: 'Roboto', 'Roboto Fallback';
+  --font-mono: 'Roboto Mono', 'Roboto Mono Fallback';
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* react-day-picker theme integration */
+.rdp-root {
+  --rdp-accent-color: var(--primary);
+  --rdp-accent-background-color: var(--primary);
+  --rdp-day-height: 36px;
+  --rdp-day-width: 36px;
+}
+
+.rdp-day_button:hover {
+  background-color: var(--muted);
+  border-radius: var(--radius);
+}
+
+.rdp-selected .rdp-day_button {
+  border-radius: var(--radius);
+  background-color: var(--destructive) !important;
+  color: white !important;
+}
+
+.rdp-selected:hover .rdp-day_button {
+  background-color: var(--destructive) !important;
+  opacity: 0.9;
+}
+
+.rdp-today:not(.rdp-selected) .rdp-day_button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.rdp-disabled .rdp-day_button {
+  opacity: 0.35;
+}

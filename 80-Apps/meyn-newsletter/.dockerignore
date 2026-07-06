@@ -1,0 +1,54 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+.next
+out
+build
+dist
+
+# Git
+.git
+.gitignore
+
+# Development
+.env*.local
+.env.development
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage
+.nyc_output
+
+# Documentation
+*.md
+docs
+LICENSE
+
+# Infrastructure (not needed in container)
+infra
+azure-pipelines.yml
+renovate.json
+docker-compose.yml
+Dockerfile
+
+# Vercel
+.vercel
+
+# Plans
+v0_plans
+v0_memories

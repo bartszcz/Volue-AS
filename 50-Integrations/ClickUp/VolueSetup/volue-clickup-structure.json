@@ -1,0 +1,183 @@
+{
+  "spaces": [
+    {
+      "name": "VOLUE – Engineering",
+      "description": "Engineering-centric workspace: incidents, changes, projects, automation, design.",
+      "color": "#2086f3",
+      "multiple_assignees": true,
+      "features": {
+        "time_tracking": true,
+        "tags": true,
+        "checklists": true,
+        "custom_fields": true,
+        "remap_dependencies": true,
+        "dependency_warning": true,
+        "portfolios": true
+      },
+      "statuses": [
+        { "status": "Inbox",   "type": "open" },
+        { "status": "Planned", "type": "open" },
+        { "status": "Doing",   "type": "open" },
+        { "status": "Waiting", "type": "open" },
+        { "status": "Done",    "type": "closed" }
+      ],
+      "folders": [
+        {
+          "name": "01. Flow / Queue",
+          "lists": [
+            {
+              "name": "01. Inbox",
+              "description": "Raw intake: notes from calls, ideas, unsorted tasks."
+            },
+            {
+              "name": "02. Now (This Week)",
+              "description": "Commitments for the current week."
+            },
+            {
+              "name": "03. Backlog",
+              "description": "Accepted tasks that are not in focus this week."
+            }
+          ]
+        },
+        {
+          "name": "02. Incidents & Support",
+          "lists": [
+            {
+              "name": "Incidents (P1–P3)",
+              "description": "Real incidents, outages, and major issues."
+            },
+            {
+              "name": "2nd Line / Escalations",
+              "description": "Escalated tickets and complex support work."
+            }
+          ]
+        },
+        {
+          "name": "03. Changes & Maintenance",
+          "lists": [
+            {
+              "name": "Planned Changes",
+              "description": "Change work with windows, risk, and rollback plans."
+            },
+            {
+              "name": "Regular Maintenance",
+              "description": "Recurring ops tasks: patching, checks, housekeeping."
+            }
+          ]
+        },
+        {
+          "name": "04. Projects & Epics",
+          "lists": [
+            {
+              "name": "Active Projects",
+              "description": "Larger initiatives and project-level work."
+            },
+            {
+              "name": "Future Projects / Ideas",
+              "description": "Potential projects and future work candidates."
+            }
+          ]
+        },
+        {
+          "name": "05. Automation & Tooling",
+          "lists": [
+            {
+              "name": "Automation Backlog",
+              "description": "Ideas for scripts, flows, and tooling to build."
+            },
+            {
+              "name": "Scripts in Development",
+              "description": "Automation currently being developed or tested."
+            },
+            {
+              "name": "In Production",
+              "description": "Automation that is running in production environments."
+            },
+            {
+              "name": "Issues / Tech Debt",
+              "description": "Cleanup, refactors, and technical debt around tools."
+            }
+          ]
+        },
+        {
+          "name": "06. Architecture & Design",
+          "lists": [
+            {
+              "name": "Design Tasks",
+              "description": "Work items for solution design and architecture."
+            },
+            {
+              "name": "Decisions & ADRs",
+              "description": "Architecture decision records and key choices."
+            }
+          ]
+        },
+        {
+          "name": "07. Docs & Checklists",
+          "lists": [
+            {
+              "name": "SOPs / Runbooks – TODO",
+              "description": "Documentation and runbooks to be created."
+            },
+            {
+              "name": "SOPs Ready",
+              "description": "Completed SOPs with links to their final location."
+            },
+            {
+              "name": "Reusable Checklists",
+              "description": "Generic checklists for changes, incidents, etc."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "VOLUE – Personal",
+      "description": "Personal planning: today, this week, learning, and admin.",
+      "color": "#9c27b0",
+      "multiple_assignees": false,
+      "features": {
+        "time_tracking": true,
+        "tags": true,
+        "checklists": true,
+        "custom_fields": true,
+        "remap_dependencies": true,
+        "dependency_warning": true,
+        "portfolios": false
+      },
+      "statuses": [
+        { "status": "Todo",  "type": "open" },
+        { "status": "Doing", "type": "open" },
+        { "status": "Done",  "type": "closed" }
+      ],
+      "folders": [
+        {
+          "name": "01. Focus",
+          "lists": [
+            {
+              "name": "Today",
+              "description": "What you actually want to touch today."
+            },
+            {
+              "name": "This Week",
+              "description": "Personal focus areas and tasks for the week."
+            }
+          ]
+        },
+        {
+          "name": "02. Growth & Admin",
+          "lists": [
+            {
+              "name": "Learning & Certs",
+              "description": "Courses, labs, certifications, skill growth."
+            },
+            {
+              "name": "Admin / Company",
+              "description": "HR/admin tasks, mandatory trainings, etc."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

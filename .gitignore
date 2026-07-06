@@ -1,0 +1,81 @@
+# -------------------------
+# General OS junk
+# -------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# -------------------------
+# VS Code / IDE
+# -------------------------
+.vscode/
+.history/
+*.code-workspace
+
+# Rider / JetBrains / others
+.idea/
+*.iml
+
+# -------------------------
+# PowerShell
+# -------------------------
+# Transcripts, temp outputs, backups
+*.ps1.tmp
+*.ps1.bak
+*.ps1.old
+*.ps1.log
+*.psm1.tmp
+*.psd1.tmp
+
+# Pester / test output
+TestResults.xml
+
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# -------------------------
+# Logs & temp & artifacts
+# -------------------------
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Build / dist folders
+dist/
+build/
+out/
+release/
+*.zip
+*.7z
+
+# -------------------------
+# OneDrive / sync noise
+# -------------------------
+~$*
+*.tmp~*
+
+# -------------------------
+# GitHub Actions local stuff (if any)
+# -------------------------
+.github/local/
+
+*.csv
+
+settings.local.json
+80-Apps/meyn-newsletter/temp/
+
+20-Endpoint/Intune/autopilot-migration/VolueMigration.ps1

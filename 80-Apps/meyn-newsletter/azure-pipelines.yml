@@ -1,0 +1,105 @@
+# Azure DevOps Pipeline for HSE Newsletter Manager
+# Streamlined build - Docker only (no redundant Node/pnpm install)
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - '*.md'
+      - 'docs/**'
+
+pr: none
+
+variables:
+  - group: hse-newsletter-vars
+  - name: acrServiceConnection
+    value: 'acr-service-connection'
+  - name: acrName
+    value: 'hsenewsletteracr'
+  - name: imageRepository
+    value: 'hse-newsletter-manager'
+  - name: azureSubscription
+    value: 'azure-subscription-connection'
+  - name: resourceGroup
+    value: 'rg-hse-newsletter'
+  - name: containerAppName
+    value: 'ca-hse-newsletter'
+  - name: tag
+    value: '$(Build.BuildId)'
+
+stages:
+  - stage: BuildAndDeploy
+    displayName: 'Build and Deploy'
+    jobs:
+      - job: BuildPushDeploy
+        displayName: 'Build, Push, Deploy'
+        pool:
+          vmImage: 'ubuntu-latest'
+        timeoutInMinutes: 180
+        
+        steps:
+          - checkout: self
+            fetchDepth: 1
+
+          # Login to ACR
+          - task: Docker@2
+            displayName: 'Login to ACR'
+            inputs:
+              command: 'login'
+              containerRegistry: '$(acrServiceConnection)'
+
+          # Pull cache image (ignore errors if not exists)
+          - script: |
+              docker pull $(acrName).azurecr.io/$(imageRepository):latest || echo "No cache image found, building from scratch"
+            displayName: 'Pull cache image'
+            continueOnError: true
+
+          # Build Docker image with BuildKit
+          - script: |
+              export DOCKER_BUILDKIT=1
+              docker build \
+                --build-arg NEXT_PUBLIC_MSAL_CLIENT_ID="$(NEXT_PUBLIC_MSAL_CLIENT_ID)" \
+                --build-arg NEXT_PUBLIC_MSAL_TENANT_ID="$(NEXT_PUBLIC_MSAL_TENANT_ID)" \
+                --build-arg NEXT_PUBLIC_ONEDRIVE_DRIVE_ID="$(NEXT_PUBLIC_ONEDRIVE_DRIVE_ID)" \
+                --build-arg NEXT_PUBLIC_ONEDRIVE_ITEM_ID="$(NEXT_PUBLIC_ONEDRIVE_ITEM_ID)" \
+                --build-arg NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH="$(NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH)" \
+                --cache-from $(acrName).azurecr.io/$(imageRepository):latest \
+                -t $(acrName).azurecr.io/$(imageRepository):$(tag) \
+                -t $(acrName).azurecr.io/$(imageRepository):latest \
+                .
+            displayName: 'Build Docker image'
+
+          # Push to ACR
+          - script: |
+              docker push $(acrName).azurecr.io/$(imageRepository):$(tag)
+              docker push $(acrName).azurecr.io/$(imageRepository):latest
+            displayName: 'Push to ACR'
+
+          # Deploy to Container Apps
+          - task: AzureCLI@2
+            displayName: 'Deploy to Container Apps'
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az containerapp update \
+                  --name $(containerAppName) \
+                  --resource-group $(resourceGroup) \
+                  --image $(acrName).azurecr.io/$(imageRepository):$(tag) \
+                  --set-env-vars \
+                    "NEXT_PUBLIC_MSAL_CLIENT_ID=$(NEXT_PUBLIC_MSAL_CLIENT_ID)" \
+                    "NEXT_PUBLIC_MSAL_TENANT_ID=$(NEXT_PUBLIC_MSAL_TENANT_ID)" \
+                    "NEXT_PUBLIC_ONEDRIVE_DRIVE_ID=$(NEXT_PUBLIC_ONEDRIVE_DRIVE_ID)" \
+                    "NEXT_PUBLIC_ONEDRIVE_ITEM_ID=$(NEXT_PUBLIC_ONEDRIVE_ITEM_ID)" \
+                    "NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH=$(NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH)"
+
+          # Show deployment URL
+          - script: |
+              echo "============================================"
+              echo "Deployment complete!"
+              echo "App URL: https://ca-hse-newsletter.braveplant-83c6ba92.westeurope.azurecontainerapps.io"
+              echo "============================================"
+            displayName: 'Deployment Summary'

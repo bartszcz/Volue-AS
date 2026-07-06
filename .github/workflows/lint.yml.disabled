@@ -1,0 +1,172 @@
+name: Lint Scripts
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  powershell-lint:
+    name: PowerShell Lint (PSScriptAnalyzer)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check PowerShell version
+        shell: bash
+        run: |
+          set -e
+          command -v pwsh
+          pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion'
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Import-Module PSScriptAnalyzer
+          Get-Module PSScriptAnalyzer | Select-Object Name, Version
+
+      - name: Run PSScriptAnalyzer (fail on errors only)
+        shell: pwsh
+        env:
+          # Set to -1 to never fail on warnings, or set a number like 200 to fail if warnings exceed that.
+          MAX_WARNINGS: "-1"
+          # PSScriptAnalyzerSettings.psd1 is present in repo root
+          USE_SETTINGS_FILE: "true"
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Check if any PowerShell scripts exist before running
+          $scripts = Get-ChildItem -Path . -Recurse -File -Include *.ps1, *.psm1, *.psd1
+
+          if (-not $scripts) {
+            Write-Host "No PowerShell scripts found. Skipping."
+            exit 0
+          }
+
+          # Let PSScriptAnalyzer discover files itself with -Recurse
+          # (-Path accepts a single string, not an array)
+          $invokeParams = @{
+            Path     = '.'
+            Severity = @('Warning','Error')
+            Recurse  = $true
+          }
+
+          if ($env:USE_SETTINGS_FILE -eq "true" -and (Test-Path -LiteralPath "./PSScriptAnalyzerSettings.psd1")) {
+            $invokeParams["Settings"] = "./PSScriptAnalyzerSettings.psd1"
+            Write-Host "Using settings file: ./PSScriptAnalyzerSettings.psd1"
+          } else {
+            Write-Host "No settings file used."
+          }
+
+          $allResults = Invoke-ScriptAnalyzer @invokeParams
+
+          if (-not $allResults) {
+            Write-Host "PSScriptAnalyzer: no issues found."
+            exit 0
+          }
+
+          $errors   = @($allResults | Where-Object Severity -eq 'Error')
+          $warnings = @($allResults | Where-Object Severity -eq 'Warning')
+
+          Write-Host ""
+          Write-Host "PSScriptAnalyzer summary"
+          Write-Host "----------------------"
+          Write-Host ("Errors:   {0}" -f $errors.Count)
+          Write-Host ("Warnings: {0}" -f $warnings.Count)
+
+          Write-Host ""
+          Write-Host "Top rules"
+          Write-Host "---------"
+          $allResults |
+            Group-Object RuleName |
+            Sort-Object Count -Descending |
+            Select-Object -First 10 Name, Count |
+            Format-Table -AutoSize |
+            Out-String | Write-Host
+
+          Write-Host ""
+          Write-Host "Sample issues (first 50)"
+          Write-Host "------------------------"
+          $allResults |
+            Sort-Object ScriptName, Line, RuleName |
+            Select-Object -First 50 RuleName, Severity, ScriptName, Line, Message |
+            Format-Table -AutoSize |
+            Out-String | Write-Host
+
+          # Gate: fail on errors always
+          if ($errors.Count -gt 0) {
+            throw "PSScriptAnalyzer found $($errors.Count) error(s) and $($warnings.Count) warning(s). Failing due to errors."
+          }
+
+          # Optional gate: fail if warnings exceed threshold
+          $maxWarnings = [int]$env:MAX_WARNINGS
+          if ($maxWarnings -ge 0 -and $warnings.Count -gt $maxWarnings) {
+            throw "PSScriptAnalyzer warnings ($($warnings.Count)) exceed MAX_WARNINGS ($maxWarnings)."
+          }
+
+          Write-Host "PSScriptAnalyzer passed. Errors: 0, Warnings: $($warnings.Count)"
+          exit 0
+
+  python-lint:
+    name: Python Lint (flake8)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8 on .py files
+        run: |
+          if ! find . -name "*.py" -print -quit | grep -q .; then
+              echo "No Python files found. Skipping."
+              exit 0
+          fi
+
+          echo "Running flake8 (config from .flake8 if present)..."
+
+          # Capture output; don't exit immediately on failure
+          set +e
+          output=$(flake8 . 2>&1)
+          rc=$?
+          set -e
+
+          if [ $rc -eq 0 ]; then
+              echo "flake8: no issues found."
+              exit 0
+          fi
+
+          # Show all issues
+          echo ""
+          echo "$output"
+
+          # Count errors (E***) vs warnings (W***)
+          error_count=$(echo "$output" | grep -cP ': E\d' || true)
+          warning_count=$(echo "$output" | grep -cP ': W\d' || true)
+
+          echo ""
+          echo "flake8 summary"
+          echo "--------------"
+          echo "Errors:   $error_count"
+          echo "Warnings: $warning_count"
+
+          # Fail only if there are actual errors (E-codes)
+          if [ "$error_count" -gt 0 ]; then
+              echo "::error::flake8 found $error_count error(s). Fix them before merging."
+              exit 1
+          fi
+
+          echo "flake8 passed (warnings only, no errors)."
+          exit 0

@@ -1,0 +1,83 @@
+# Azure DevOps Pipeline for HSE Newsletter Manager
+# Deploys to Azure Static Web Apps on push to main
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  - group: hse-newsletter-vars  # Variable group containing NEXT_PUBLIC_MSAL_CLIENT_ID, NEXT_PUBLIC_MSAL_TENANT_ID
+  - name: NODE_VERSION
+    value: "20.x"
+
+stages:
+  - stage: Build
+    displayName: "Build & Test"
+    jobs:
+      - job: BuildJob
+        displayName: "Build Next.js Application"
+        steps:
+          - task: NodeTool@0
+            displayName: "Install Node.js"
+            inputs:
+              versionSpec: "$(NODE_VERSION)"
+
+          - script: |
+              corepack enable
+              corepack prepare pnpm@latest --activate
+            displayName: "Enable pnpm"
+
+          - script: pnpm install --frozen-lockfile
+            displayName: "Install dependencies"
+
+          - script: pnpm run lint
+            displayName: "Run linter"
+            continueOnError: true
+
+          - script: pnpm run build
+            displayName: "Build Next.js app"
+            env:
+              NEXT_PUBLIC_MSAL_CLIENT_ID: $(NEXT_PUBLIC_MSAL_CLIENT_ID)
+              NEXT_PUBLIC_MSAL_TENANT_ID: $(NEXT_PUBLIC_MSAL_TENANT_ID)
+              NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH: $(NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH)
+
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish build artifacts"
+            inputs:
+              pathToPublish: "$(Build.SourcesDirectory)"
+              artifactName: "app"
+
+  - stage: Deploy
+    displayName: "Deploy to Azure Static Web Apps"
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployJob
+        displayName: "Deploy to Production"
+        environment: "production"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: app
+
+                - task: AzureStaticWebApp@0
+                  displayName: "Deploy to Azure Static Web Apps"
+                  inputs:
+                    app_location: "$(Pipeline.Workspace)/app"
+                    output_location: "out"
+                    azure_static_web_apps_api_token: $(SWA_DEPLOYMENT_TOKEN)
+                  env:
+                    NEXT_PUBLIC_MSAL_CLIENT_ID: $(NEXT_PUBLIC_MSAL_CLIENT_ID)
+                    NEXT_PUBLIC_MSAL_TENANT_ID: $(NEXT_PUBLIC_MSAL_TENANT_ID)
+                    NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH: $(NEXT_PUBLIC_ONEDRIVE_FOLDER_PATH)

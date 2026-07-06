@@ -1,0 +1,163 @@
+{
+	"id": "a1ebea2a-722a-401e-9efb-ed6f7ac7fb33",
+	"deletedDateTime": null,
+	"appId": "b95cce12-03ec-4675-bcef-b9183c83ed7b",
+	"applicationTemplateId": null,
+	"disabledByMicrosoftStatus": null,
+	"createdByAppId": null,
+	"createdDateTime": "2023-07-19T14:57:06Z",
+	"displayName": "Grafana Auth",
+	"description": null,
+	"groupMembershipClaims": null,
+	"identifierUris": [],
+	"isDeviceOnlyAuthSupported": null,
+	"isDisabled": null,
+	"isFallbackPublicClient": null,
+	"nativeAuthenticationApisEnabled": null,
+	"notes": null,
+	"publisherDomain": "smartpulse.io",
+	"serviceManagementReference": null,
+	"signInAudience": "AzureADMyOrg",
+	"tags": [],
+	"tokenEncryptionKeyId": null,
+	"samlMetadataUrl": null,
+	"defaultRedirectUri": null,
+	"certification": null,
+	"optionalClaims": null,
+	"servicePrincipalLockConfiguration": null,
+	"requestSignatureVerification": null,
+	"addIns": [],
+	"api": {
+		"acceptMappedClaims": null,
+		"knownClientApplications": [],
+		"requestedAccessTokenVersion": null,
+		"oauth2PermissionScopes": [],
+		"preAuthorizedApplications": []
+	},
+	"appRoles": [
+		{
+			"allowedMemberTypes": [
+				"User"
+			],
+			"description": "Grafana org admin Users",
+			"displayName": "Grafana Org Admin",
+			"id": "3ac29a7f-51a9-4935-951c-6ef78e96c35e",
+			"isEnabled": true,
+			"origin": "Application",
+			"value": "Admin"
+		},
+		{
+			"allowedMemberTypes": [
+				"User"
+			],
+			"description": "Grafana read only Users",
+			"displayName": "Grafana Viewer",
+			"id": "98088a3c-f601-4628-b916-b02a03532e3c",
+			"isEnabled": true,
+			"origin": "Application",
+			"value": "Viewer"
+		},
+		{
+			"allowedMemberTypes": [
+				"User"
+			],
+			"description": "Grafana Editor Users",
+			"displayName": "Grafana Editor",
+			"id": "0c47fbbe-a75c-4a3e-99b5-3ecd4e3aef7f",
+			"isEnabled": true,
+			"origin": "Application",
+			"value": "Editor"
+		}
+	],
+	"info": {
+		"logoUrl": null,
+		"marketingUrl": null,
+		"privacyStatementUrl": null,
+		"supportUrl": null,
+		"termsOfServiceUrl": null
+	},
+	"keyCredentials": [],
+	"parentalControlSettings": {
+		"countriesBlockedForMinors": [],
+		"legalAgeGroupRule": "Allow"
+	},
+	"passwordCredentials": [
+		{
+			"customKeyIdentifier": null,
+			"displayName": "Grafana OAuth",
+			"endDateTime": "2025-07-18T21:00:00Z",
+			"hint": "StA",
+			"keyId": "458690c7-8c50-498b-bc22-27a0e2b8e4e3",
+			"secretText": null,
+			"startDateTime": "2023-07-19T14:57:48.466Z"
+		},
+		{
+			"customKeyIdentifier": null,
+			"displayName": "secret",
+			"endDateTime": "2035-07-18T22:36:38Z",
+			"hint": "z20",
+			"keyId": "e4f9f422-f806-472e-b5de-3727adc43871",
+			"secretText": null,
+			"startDateTime": "2025-07-18T22:36:38Z"
+		}
+	],
+	"publicClient": {
+		"redirectUris": []
+	},
+	"requiredResourceAccess": [
+		{
+			"resourceAppId": "00000003-0000-0000-c000-000000000000",
+			"resourceAccess": [
+				{
+					"id": "e1fe6dd8-ba31-4d61-89e7-88639da4683d",
+					"type": "Scope"
+				}
+			]
+		}
+	],
+	"verifiedPublisher": {
+		"displayName": null,
+		"verifiedPublisherId": null,
+		"addedDateTime": null
+	},
+	"web": {
+		"homePageUrl": null,
+		"logoutUrl": null,
+		"redirectUris": [
+			"https://monitoring.dst.smartpulse.io/login/azuread",
+			"https://monitoring-gip2.dev.smartpulse.io/login/azuread",
+			"https://monitoring.demo.smartpulse.io/login/azuread",
+			"https://monitoring.staging.smartpulse.io/login/azuread",
+			"https://monitoring.smartpulse.io/login/azuread"
+		],
+		"implicitGrantSettings": {
+			"enableAccessTokenIssuance": false,
+			"enableIdTokenIssuance": false
+		},
+		"redirectUriSettings": [
+			{
+				"uri": "https://monitoring.dst.smartpulse.io/login/azuread",
+				"index": null
+			},
+			{
+				"uri": "https://monitoring-gip2.dev.smartpulse.io/login/azuread",
+				"index": null
+			},
+			{
+				"uri": "https://monitoring.demo.smartpulse.io/login/azuread",
+				"index": null
+			},
+			{
+				"uri": "https://monitoring.staging.smartpulse.io/login/azuread",
+				"index": null
+			},
+			{
+				"uri": "https://monitoring.smartpulse.io/login/azuread",
+				"index": null
+			}
+		]
+	},
+	"spa": {
+		"redirectUris": []
+	}
+}

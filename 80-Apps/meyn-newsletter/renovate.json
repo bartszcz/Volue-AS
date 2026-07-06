@@ -1,0 +1,93 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    "security:openssf-scorecard"
+  ],
+  "timezone": "Europe/Warsaw",
+  "schedule": ["after 6am and before 9am every weekday"],
+  "prHourlyLimit": 5,
+  "prConcurrentLimit": 10,
+  "labels": ["dependencies", "automated"],
+  "assignees": [],
+  "reviewers": [],
+  "dependencyDashboard": true,
+  "dependencyDashboardAutoclose": true,
+  "packageRules": [
+    {
+      "description": "Auto-merge ALL security updates immediately",
+      "matchUpdateTypes": ["patch", "minor"],
+      "matchCategories": ["security"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "schedule": ["at any time"],
+      "labels": ["security", "auto-merge"],
+      "prPriority": 10
+    },
+    {
+      "description": "Auto-merge patch updates",
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    },
+    {
+      "description": "Auto-merge minor updates for dev dependencies",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Group all non-major dependencies",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch"
+    },
+    {
+      "description": "Group React ecosystem",
+      "matchPackagePatterns": ["^react", "^@types/react"],
+      "groupName": "React packages"
+    },
+    {
+      "description": "Group Next.js ecosystem",
+      "matchPackagePatterns": ["^next", "^@next/"],
+      "groupName": "Next.js packages"
+    },
+    {
+      "description": "Group Microsoft Graph and MSAL",
+      "matchPackagePatterns": ["^@microsoft/", "^@azure/"],
+      "groupName": "Microsoft packages"
+    },
+    {
+      "description": "Group shadcn/ui and Radix",
+      "matchPackagePatterns": ["^@radix-ui/", "^class-variance-authority", "^clsx", "^tailwind-merge"],
+      "groupName": "UI packages"
+    },
+    {
+      "description": "Group Tailwind",
+      "matchPackagePatterns": ["^tailwindcss", "^postcss", "^autoprefixer"],
+      "groupName": "Tailwind packages"
+    },
+    {
+      "description": "Group Docker base images",
+      "matchManagers": ["dockerfile"],
+      "groupName": "Docker images",
+      "automerge": true
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "vulnerability", "priority:critical"],
+    "automerge": true,
+    "schedule": ["at any time"]
+  },
+  "azure-pipelines": {
+    "enabled": true
+  },
+  "dockerfile": {
+    "enabled": true
+  }
+}

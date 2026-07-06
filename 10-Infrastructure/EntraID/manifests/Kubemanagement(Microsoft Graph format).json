@@ -1,0 +1,157 @@
+{
+	"id": "5967850f-6aad-4d21-a36e-ed6fbf51d4b5",
+	"deletedDateTime": null,
+	"appId": "6cf06bff-3ac3-457c-9f03-d00a8bf09d3e",
+	"applicationTemplateId": null,
+	"disabledByMicrosoftStatus": null,
+	"createdByAppId": "18ed3507-a475-4ccb-b669-d66bc9f2a36e",
+	"createdDateTime": "2025-07-13T13:05:28Z",
+	"displayName": "Kubemanagement",
+	"description": null,
+	"groupMembershipClaims": "None",
+	"identifierUris": [],
+	"isDeviceOnlyAuthSupported": null,
+	"isDisabled": null,
+	"isFallbackPublicClient": null,
+	"nativeAuthenticationApisEnabled": null,
+	"notes": null,
+	"publisherDomain": "smartpulse.io",
+	"serviceManagementReference": null,
+	"signInAudience": "AzureADMyOrg",
+	"tags": [],
+	"tokenEncryptionKeyId": null,
+	"samlMetadataUrl": null,
+	"defaultRedirectUri": null,
+	"certification": null,
+	"requestSignatureVerification": null,
+	"addIns": [],
+	"api": {
+		"acceptMappedClaims": null,
+		"knownClientApplications": [],
+		"requestedAccessTokenVersion": null,
+		"oauth2PermissionScopes": [],
+		"preAuthorizedApplications": []
+	},
+	"appRoles": [],
+	"info": {
+		"logoUrl": null,
+		"marketingUrl": null,
+		"privacyStatementUrl": null,
+		"supportUrl": null,
+		"termsOfServiceUrl": null
+	},
+	"keyCredentials": [],
+	"optionalClaims": {
+		"accessToken": [
+			{
+				"additionalProperties": [],
+				"essential": false,
+				"name": "email",
+				"source": null
+			},
+			{
+				"additionalProperties": [],
+				"essential": false,
+				"name": "upn",
+				"source": null
+			}
+		],
+		"idToken": [],
+		"saml2Token": []
+	},
+	"parentalControlSettings": {
+		"countriesBlockedForMinors": [],
+		"legalAgeGroupRule": "Allow"
+	},
+	"passwordCredentials": [
+		{
+			"customKeyIdentifier": null,
+			"displayName": "token",
+			"endDateTime": "2027-07-13T13:06:29.208Z",
+			"hint": "AcR",
+			"keyId": "42c5da35-0077-45a7-b312-dcab3126446f",
+			"secretText": null,
+			"startDateTime": "2025-07-13T13:06:29.208Z"
+		}
+	],
+	"publicClient": {
+		"redirectUris": []
+	},
+	"requiredResourceAccess": [
+		{
+			"resourceAppId": "00000003-0000-0000-c000-000000000000",
+			"resourceAccess": [
+				{
+					"id": "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0",
+					"type": "Scope"
+				},
+				{
+					"id": "14dad69e-099b-42c9-810b-d002981feec1",
+					"type": "Scope"
+				},
+				{
+					"id": "e1fe6dd8-ba31-4d61-89e7-88639da4683d",
+					"type": "Scope"
+				}
+			]
+		}
+	],
+	"verifiedPublisher": {
+		"displayName": null,
+		"verifiedPublisherId": null,
+		"addedDateTime": null
+	},
+	"web": {
+		"homePageUrl": null,
+		"logoutUrl": null,
+		"redirectUris": [
+			"https://kubemanagement.dst.smartpulse.io/auth/callback",
+			"https://kubemanagement.dev.smartpulse.io/auth/callback",
+			"https://kubemanagement.demo.smartpulse.io/auth/callback",
+			"https://kubemanagement.smartpulse.io/auth/callback",
+			"https://kubemanagement.staging.smartpulse.io/auth/callback",
+			"http://localhost:8080/auth/callback"
+		],
+		"implicitGrantSettings": {
+			"enableAccessTokenIssuance": false,
+			"enableIdTokenIssuance": true
+		},
+		"redirectUriSettings": [
+			{
+				"uri": "https://kubemanagement.dst.smartpulse.io/auth/callback",
+				"index": null
+			},
+			{
+				"uri": "https://kubemanagement.dev.smartpulse.io/auth/callback",
+				"index": null
+			},
+			{
+				"uri": "https://kubemanagement.demo.smartpulse.io/auth/callback",
+				"index": null
+			},
+			{
+				"uri": "https://kubemanagement.smartpulse.io/auth/callback",
+				"index": null
+			},
+			{
+				"uri": "https://kubemanagement.staging.smartpulse.io/auth/callback",
+				"index": null
+			},
+			{
+				"uri": "http://localhost:8080/auth/callback",
+				"index": null
+			}
+		]
+	},
+	"servicePrincipalLockConfiguration": {
+		"isEnabled": true,
+		"allProperties": true,
+		"credentialsWithUsageVerify": true,
+		"credentialsWithUsageSign": true,
+		"identifierUris": false,
+		"tokenEncryptionKeyId": true
+	},
+	"spa": {
+		"redirectUris": []
+	}
+}

@@ -1,0 +1,170 @@
+{
+	"id": "56b8cef3-66f5-4a58-8f2e-0d4056a0ec63",
+	"deletedDateTime": null,
+	"appId": "bbbbff4e-5726-4a8c-9f0d-5f1893497871",
+	"applicationTemplateId": "8adf8e6e-67b2-4cf2-a259-e3dc5476c621",
+	"disabledByMicrosoftStatus": null,
+	"createdByAppId": null,
+	"createdDateTime": "2023-10-13T12:47:40Z",
+	"displayName": "hub.smartuser.io (SAML)",
+	"description": null,
+	"groupMembershipClaims": "None",
+	"identifierUris": [
+		"smartuserhub"
+	],
+	"isDeviceOnlyAuthSupported": null,
+	"isDisabled": null,
+	"isFallbackPublicClient": false,
+	"nativeAuthenticationApisEnabled": null,
+	"notes": null,
+	"publisherDomain": "smartpulse.io",
+	"serviceManagementReference": null,
+	"signInAudience": "AzureADMyOrg",
+	"tags": [],
+	"tokenEncryptionKeyId": null,
+	"samlMetadataUrl": null,
+	"defaultRedirectUri": "https://hub.smartuser.io/commonauth",
+	"certification": null,
+	"servicePrincipalLockConfiguration": null,
+	"requestSignatureVerification": null,
+	"addIns": [],
+	"api": {
+		"acceptMappedClaims": null,
+		"knownClientApplications": [],
+		"requestedAccessTokenVersion": null,
+		"oauth2PermissionScopes": [
+			{
+				"adminConsentDescription": "Allow the application to access hub.smartuser.io (SAML) on behalf of the signed-in user.",
+				"adminConsentDisplayName": "Access hub.smartuser.io (SAML)",
+				"id": "f024c3f7-0561-4b26-8beb-65aa80edf24f",
+				"isEnabled": true,
+				"type": "User",
+				"userConsentDescription": "Allow the application to access hub.smartuser.io (SAML) on your behalf.",
+				"userConsentDisplayName": "Access hub.smartuser.io (SAML)",
+				"value": "user_impersonation"
+			}
+		],
+		"preAuthorizedApplications": []
+	},
+	"appRoles": [
+		{
+			"allowedMemberTypes": [
+				"User"
+			],
+			"description": "msiam_access",
+			"displayName": "msiam_access",
+			"id": "b9632174-c057-4f7e-951b-be3adc52bfe6",
+			"isEnabled": true,
+			"origin": "Application",
+			"value": null
+		},
+		{
+			"allowedMemberTypes": [
+				"User"
+			],
+			"description": "User",
+			"displayName": "User",
+			"id": "18d14569-c3bd-439b-9a66-3a2aee01d14f",
+			"isEnabled": true,
+			"origin": "Application",
+			"value": null
+		}
+	],
+	"info": {
+		"logoUrl": null,
+		"marketingUrl": null,
+		"privacyStatementUrl": null,
+		"supportUrl": null,
+		"termsOfServiceUrl": null
+	},
+	"keyCredentials": [],
+	"optionalClaims": {
+		"accessToken": [],
+		"idToken": [],
+		"saml2Token": [
+			{
+				"additionalProperties": [],
+				"essential": false,
+				"name": "email",
+				"source": null
+			},
+			{
+				"additionalProperties": [],
+				"essential": false,
+				"name": "acct",
+				"source": null
+			},
+			{
+				"additionalProperties": [],
+				"essential": false,
+				"name": "upn",
+				"source": null
+			}
+		]
+	},
+	"parentalControlSettings": {
+		"countriesBlockedForMinors": [],
+		"legalAgeGroupRule": "Allow"
+	},
+	"passwordCredentials": [],
+	"publicClient": {
+		"redirectUris": []
+	},
+	"requiredResourceAccess": [
+		{
+			"resourceAppId": "00000003-0000-0000-c000-000000000000",
+			"resourceAccess": [
+				{
+					"id": "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0",
+					"type": "Scope"
+				},
+				{
+					"id": "7427e0e9-2fba-42fe-b0c0-848c9e6a8182",
+					"type": "Scope"
+				},
+				{
+					"id": "37f7f235-527c-4136-accd-4a02d197296e",
+					"type": "Scope"
+				},
+				{
+					"id": "14dad69e-099b-42c9-810b-d002981feec1",
+					"type": "Scope"
+				},
+				{
+					"id": "df021288-bdef-4463-88db-98f22de89214",
+					"type": "Role"
+				}
+			]
+		}
+	],
+	"verifiedPublisher": {
+		"displayName": null,
+		"verifiedPublisherId": null,
+		"addedDateTime": null
+	},
+	"web": {
+		"homePageUrl": "https://account.activedirectory.windowsazure.com:444/applications/default.aspx?metadata=customappsso|ISV9.1|primary|z",
+		"logoutUrl": null,
+		"redirectUris": [
+			"https://it-assets.smartpulse.io/login",
+			"https://hub.smartuser.io/commonauth"
+		],
+		"implicitGrantSettings": {
+			"enableAccessTokenIssuance": false,
+			"enableIdTokenIssuance": true
+		},
+		"redirectUriSettings": [
+			{
+				"uri": "https://it-assets.smartpulse.io/login",
+				"index": null
+			},
+			{
+				"uri": "https://hub.smartuser.io/commonauth",
+				"index": null
+			}
+		]
+	},
+	"spa": {
+		"redirectUris": []
+	}
+}
