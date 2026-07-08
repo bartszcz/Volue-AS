@@ -1,35 +1,141 @@
-# ── Configuration ────────────────────────────────────────────────────────────
-$TenantId            = "9ce76d42-5ecb-4d8f-939b-a462ad28cf34"
-$BillingAccountName  = "d7daa3ab-00b0-5157-f1c1-fee9bc0668ba:6274e3d1-6729-4a2a-90a8-a5074278ea1b_2019-05-31"
-$BillingProfileName  = "QDNA-A7KS-BG7-PGB"
-$InvoiceSectionName  = "OTP2-PY5C-PJA-PGB"
-$ManagementGroupId   = "EnergyTest"
-$TechnicalOwnerUPN   = "mariusz.klimczak@volue.com"
+# creates subscriptions via billing alias, tags them, creates owner/contributor/reader groups and assigns rbac
+# safe to re-run: existing aliases, groups, memberships and role assignments are skipped
+# -DryRun shows what would happen without changing anything; normal run asks y/n before each change
 
+param(
+    [switch]$DryRun
+)
+
+# --- settings ---
+$TenantId           = "9ce76d42-5ecb-4d8f-939b-a462ad28cf34"
+$BillingAccountName = "d7daa3ab-00b0-5157-f1c1-fee9bc0668ba:6274e3d1-6729-4a2a-90a8-a5074278ea1b_2019-05-31"
+$BillingProfileName = "QDNA-A7KS-BG7-PGB"
+$InvoiceSectionName = "OTP2-PY5C-PJA-PGB"
+$ManagementGroupId  = $TenantId  # group ID, not display name - tenant root group's id is the tenant guid
+$TechnicalOwnerUPN  = "recep.guleryuz@volue.com"
+
+# one entry per subscription to create - add or remove lines as needed
 $Subscriptions = @(
-    @{ Alias = "Energy-SmarTestEnergy-Prod";    Name = "Energy - SmarTestEnergy - Prod" },
-    @{ Alias = "Energy-SmarTestEnergy-PreProd"; Name = "Energy - SmarTestEnergy - PreProd" }
+    @{ Alias = "Trading-Smarpulse-Prod";    Name = "Trading - Smarpulse - Prod" }
 )
 
 $Tags = @{
-    "Cost Owner"       = "matteo.cabassi@volue.com"
-    "Environment Type" = "Test & Development Environment"
-    "Project Code"     = "1820"
-    "Product Line"     = "Energy"
-    "Project Number"   = "201134"
+    "Cost Owner"       = "murat.yilmaz@volue.com"
+    "Environment Type" = "Production"
+    "Project Code"     = "305"
+    "Product Line"     = "Trading"
+    "Project Number"   = "-"
     "Technical Owner"  = $TechnicalOwnerUPN
 }
 
-# ── Authentication ────────────────────────────────────────────────────────────
-Connect-AzAccount -TenantId $TenantId -SkipContextPopulation
-Connect-AzAccount -TenantId $TenantId -AuthScope MicrosoftGraphEndpointResourceId -SkipContextPopulation
+$RequiredModules = @("Az.Accounts", "Az.Resources", "Az.Subscription", "Microsoft.Graph.Authentication", "Microsoft.Graph.Groups", "Microsoft.Graph.Users")
+$MaxWaitAttempts = 30
+$WaitSeconds     = 10
+$RbacRetries     = 5
+$RbacRetryWait   = 15
 
-# ── Billing Scope ─────────────────────────────────────────────────────────────
+# --- functions ---
+
+# returns $true when the change should be made, $false on dry run or when the user says no
+function Confirm-Action ($Description) {
+    if ($DryRun) {
+        Write-Host "DRY RUN: would $Description" -ForegroundColor Yellow
+        return $false
+    }
+    $Answer = Read-Host "Confirm: $Description? (y/n)"
+    return ($Answer -match "^[Yy]")
+}
+
+# --- main ---
+
+foreach ($Module in $RequiredModules) {
+    if (-not (Get-Module -ListAvailable -Name $Module)) {
+        Write-Error "Module $Module is not installed. Install it first (Install-Module $Module)."
+        return
+    }
+}
+
+Write-Host "Connecting to Azure and Graph..."
+try {
+    Connect-AzAccount -TenantId $TenantId -SkipContextPopulation -ErrorAction Stop | Out-Null
+    Connect-MgGraph -TenantId $TenantId -Scopes "Group.ReadWrite.All", "User.Read.All" -ErrorAction Stop
+} catch {
+    Write-Error "Login failed: $($_.Exception.Message)"
+    return
+}
+
+if ($DryRun) { Write-Host "Dry run - nothing will be changed" -ForegroundColor Yellow }
+
 $BillingScope = "/providers/Microsoft.Billing/billingAccounts/$BillingAccountName/billingProfiles/$BillingProfileName/invoiceSections/$InvoiceSectionName"
 
-# ── Create Subscriptions ──────────────────────────────────────────────────────
+# permission checks - fail early instead of halfway through
+Write-Host "Checking permissions..."
+
+# billing: which invoice sections can this user create subscriptions on
+try {
+    $PermResponse = Invoke-AzRestMethod -Method POST `
+        -Path "/providers/Microsoft.Billing/billingAccounts/$BillingAccountName/listInvoiceSectionsWithCreateSubscriptionPermission?api-version=2024-04-01" `
+        -ErrorAction Stop
+} catch {
+    Write-Error "Billing permission check failed: $($_.Exception.Message)"
+    return
+}
+if ($PermResponse.StatusCode -ne 200) {
+    Write-Error "Cannot query billing account $BillingAccountName (HTTP $($PermResponse.StatusCode)) - you likely have no billing role on it. $($PermResponse.Content)"
+    return
+}
+$AllowedSections = @(($PermResponse.Content | ConvertFrom-Json).value)
+$SectionMatch = $AllowedSections | Where-Object { $_.invoiceSectionId -like "*/invoiceSections/$InvoiceSectionName" } | Select-Object -First 1
+if (-not $SectionMatch) {
+    $Usable = ($AllowedSections | ForEach-Object { "$($_.invoiceSectionDisplayName) ($($_.invoiceSectionId -replace '.*/invoiceSections/', ''))" }) -join ", "
+    Write-Error "You cannot create subscriptions on invoice section $InvoiceSectionName. Sections you can use: $Usable"
+    return
+}
+Write-Host "Billing: subscription creation allowed on invoice section '$($SectionMatch.invoiceSectionDisplayName)'"
+
+# management group: must exist and be visible - also catches display names used instead of ids
+# plain rest call on purpose, Get-AzManagementGroup tries to register the resource provider on the default subscription
+try {
+    $MGResponse = Invoke-AzRestMethod -Method GET `
+        -Path "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)?api-version=2020-05-01" `
+        -ErrorAction Stop
+} catch {
+    Write-Error "Management group check failed: $($_.Exception.Message)"
+    return
+}
+if ($MGResponse.StatusCode -ne 200) {
+    Write-Error "Management group '$ManagementGroupId' not found or no access (HTTP $($MGResponse.StatusCode)). Use the group ID, not the display name - for the tenant root that's the tenant guid. $($MGResponse.Content)"
+    return
+}
+$MG = $MGResponse.Content | ConvertFrom-Json
+Write-Host "Management group: found '$($MG.properties.displayName)' ($ManagementGroupId)"
+
+# graph: token must carry the scopes the group steps need
+$MgContext = Get-MgContext
+foreach ($Scope in @("Group.ReadWrite.All", "User.Read.All")) {
+    if ($MgContext.Scopes -notcontains $Scope) {
+        Write-Error "Graph token is missing scope $Scope - consent was not granted, group steps would fail."
+        return
+    }
+}
+Write-Host "Graph: required scopes granted"
+
+# create aliases - skip existing ones, recreating an alias would spawn a duplicate subscription
+$SkippedSubs = @{}
 foreach ($Sub in $Subscriptions) {
-    Remove-AzSubscriptionAlias -AliasName $Sub.Alias -ErrorAction SilentlyContinue
+    $Existing = Get-AzSubscriptionAlias -AliasName $Sub.Alias -ErrorAction SilentlyContinue
+    if ($Existing) {
+        Write-Host "Alias $($Sub.Alias) already exists (subscription $($Existing.SubscriptionId)), skipping create"
+        continue
+    }
+
+    if (-not (Confirm-Action "create subscription '$($Sub.Name)' (alias $($Sub.Alias), workload DevTest, management group $ManagementGroupId)")) {
+        if (-not $DryRun) {
+            Write-Host "Skipped $($Sub.Alias) - all further steps for it are skipped too" -ForegroundColor Yellow
+            $SkippedSubs[$Sub.Alias] = $true
+        }
+        continue
+    }
 
     $Body = @{
         properties = @{
@@ -43,84 +149,184 @@ foreach ($Sub in $Subscriptions) {
         }
     } | ConvertTo-Json -Depth 5
 
-    $Response = Invoke-AzRestMethod -Method PUT `
-        -Path "/providers/Microsoft.Subscription/aliases/$($Sub.Alias)?api-version=2021-10-01" `
-        -Payload $Body
+    try {
+        $Response = Invoke-AzRestMethod -Method PUT `
+            -Path "/providers/Microsoft.Subscription/aliases/$($Sub.Alias)?api-version=2021-10-01" `
+            -Payload $Body -ErrorAction Stop
+    } catch {
+        Write-Error "Alias request for $($Sub.Alias) failed: $($_.Exception.Message)"
+        return
+    }
 
     if ($Response.StatusCode -notin 200, 201, 202) {
-        Write-Error "Failed to create alias $($Sub.Alias): $($Response.Content)"
+        Write-Error "Failed to create alias $($Sub.Alias): HTTP $($Response.StatusCode) $($Response.Content)"
         return
     }
     Write-Host "Alias $($Sub.Alias) submitted (HTTP $($Response.StatusCode))"
 }
 
-Write-Host "Waiting for subscriptions to provision..."
-$MaxAttempts = 30
-$Attempt     = 0
-do {
-    Start-Sleep -Seconds 10
-    $Attempt++
-    $ProvStates = $Subscriptions | ForEach-Object {
-        Get-AzSubscriptionAlias -AliasName $_.Alias -ErrorAction SilentlyContinue
-    }
-    Write-Host "Attempt $Attempt`: $($ProvStates | ForEach-Object { "$($_.AliasName)=$($_.ProvisioningState)" })"
-} while (($ProvStates | Where-Object { $_.ProvisioningState -ne "Succeeded" }) -and $Attempt -lt $MaxAttempts)
+$ActiveSubs   = @($Subscriptions | Where-Object { -not $SkippedSubs[$_.Alias] })
+$SubIdByAlias = @{}
 
-if ($ProvStates | Where-Object { $_.ProvisioningState -ne "Succeeded" }) {
-    Write-Error "Subscriptions did not provision within timeout."
+if ($DryRun) {
+    # just resolve ids for aliases that already exist, nothing to wait for
+    foreach ($Sub in $ActiveSubs) {
+        $State = Get-AzSubscriptionAlias -AliasName $Sub.Alias -ErrorAction SilentlyContinue
+        if ($State) { $SubIdByAlias[$Sub.Alias] = $State.SubscriptionId }
+    }
+} elseif ($ActiveSubs.Count -gt 0) {
+    Write-Host "Waiting for subscriptions to provision..."
+    $Attempt = 0
+    $AllDone = $false
+    do {
+        $Attempt++
+        $ProvStates = @()
+        foreach ($Sub in $ActiveSubs) {
+            $State = Get-AzSubscriptionAlias -AliasName $Sub.Alias -ErrorAction SilentlyContinue
+            if ($State) { $ProvStates += $State }
+        }
+        Write-Host "Attempt $Attempt`: $(($ProvStates | ForEach-Object { "$($_.AliasName)=$($_.ProvisioningState)" }) -join ", ")"
+        # every alias must be found AND succeeded, an empty lookup is not success
+        $Succeeded = @($ProvStates | Where-Object { $_.ProvisioningState -eq "Succeeded" })
+        $AllDone = ($Succeeded.Count -eq $ActiveSubs.Count)
+        if (-not $AllDone) { Start-Sleep -Seconds $WaitSeconds }
+    } while (-not $AllDone -and $Attempt -lt $MaxWaitAttempts)
+
+    if (-not $AllDone) {
+        Write-Error "Subscriptions did not all reach Succeeded within timeout."
+        return
+    }
+
+    foreach ($State in $ProvStates) { $SubIdByAlias[$State.AliasName] = $State.SubscriptionId }
+    foreach ($Sub in $ActiveSubs) { Write-Host "$($Sub.Alias): $($SubIdByAlias[$Sub.Alias])" }
+} else {
+    Write-Host "No subscriptions left to process."
+}
+
+foreach ($Sub in $ActiveSubs) {
+    $SubId  = $SubIdByAlias[$Sub.Alias]
+    $IdText = if ($SubId) { $SubId } else { "id known after creation" }
+    if (-not (Confirm-Action "merge $($Tags.Count) tags onto $($Sub.Alias) ($IdText)")) { continue }
+    try {
+        Update-AzTag -ResourceId "/subscriptions/$SubId" -Tag $Tags -Operation Merge -ErrorAction Stop | Out-Null
+        Write-Host "Tags set on $($Sub.Alias)"
+    } catch {
+        Write-Error "Tagging $($Sub.Alias) failed: $($_.Exception.Message)"
+        return
+    }
+}
+
+$GroupIds = @{}
+foreach ($Sub in $ActiveSubs) {
+    foreach ($Role in @("Owners", "Contributors", "Readers")) {
+        $DisplayName = "$($Sub.Name) $Role"
+        try {
+            $ExistingGroup = Get-MgGroup -Filter "displayName eq '$DisplayName'" -ErrorAction Stop | Select-Object -First 1
+        } catch {
+            Write-Error "Group lookup for '$DisplayName' failed: $($_.Exception.Message)"
+            return
+        }
+        if ($ExistingGroup) {
+            Write-Host "Group '$DisplayName' already exists (Id: $($ExistingGroup.Id))"
+            $GroupIds[$DisplayName] = $ExistingGroup.Id
+            continue
+        }
+        if (-not (Confirm-Action "create group '$DisplayName'")) { continue }
+        $Nickname = $DisplayName -replace " ", "-" -replace "-{2,}", "-"
+        try {
+            $NewGroup = New-MgGroup -DisplayName $DisplayName -MailNickname $Nickname -MailEnabled:$false -SecurityEnabled -ErrorAction Stop
+        } catch {
+            Write-Error "Creating group '$DisplayName' failed: $($_.Exception.Message)"
+            return
+        }
+        Write-Host "Group '$DisplayName' created (Id: $($NewGroup.Id))"
+        $GroupIds[$DisplayName] = $NewGroup.Id
+    }
+}
+
+try {
+    $User = Get-MgUser -UserId $TechnicalOwnerUPN -ErrorAction Stop
+} catch {
+    Write-Error "User lookup for $TechnicalOwnerUPN failed: $($_.Exception.Message)"
     return
 }
 
-$SubIdProd    = ($ProvStates | Where-Object { $_.AliasName -eq $Subscriptions[0].Alias }).SubscriptionId
-$SubIdPreProd = ($ProvStates | Where-Object { $_.AliasName -eq $Subscriptions[1].Alias }).SubscriptionId
-
-Write-Host "Prod SubId:    $SubIdProd"
-Write-Host "PreProd SubId: $SubIdPreProd"
-
-# ── Tags ──────────────────────────────────────────────────────────────────────
-foreach ($SubId in @($SubIdProd, $SubIdPreProd)) {
-    Update-AzTag -ResourceId "/subscriptions/$SubId" -Tag $Tags -Operation Merge
+foreach ($Sub in $ActiveSubs) {
+    $GroupName = "$($Sub.Name) Owners"
+    if (-not $GroupIds.ContainsKey($GroupName)) {
+        if ($DryRun) {
+            Write-Host "DRY RUN: would add $TechnicalOwnerUPN to '$GroupName'" -ForegroundColor Yellow
+        } else {
+            Write-Host "Group '$GroupName' was not created, skipping member add" -ForegroundColor Yellow
+        }
+        continue
+    }
+    $GroupId = $GroupIds[$GroupName]
+    try {
+        $Members = Get-MgGroupMember -GroupId $GroupId -All -ErrorAction Stop
+    } catch {
+        Write-Error "Member lookup for '$GroupName' failed: $($_.Exception.Message)"
+        return
+    }
+    if ($Members.Id -contains $User.Id) {
+        Write-Host "$TechnicalOwnerUPN already in '$GroupName'"
+        continue
+    }
+    if (-not (Confirm-Action "add $TechnicalOwnerUPN to '$GroupName'")) { continue }
+    try {
+        New-MgGroupMember -GroupId $GroupId -DirectoryObjectId $User.Id -ErrorAction Stop
+        Write-Host "Added $TechnicalOwnerUPN to '$GroupName'"
+    } catch {
+        Write-Error "Adding $TechnicalOwnerUPN to '$GroupName' failed: $($_.Exception.Message)"
+        return
+    }
 }
 
-# ── Entra ID Groups ───────────────────────────────────────────────────────────
-$GroupIds = @{}
+# fresh groups can take a moment to replicate, so retry the role assignment
+foreach ($Sub in $ActiveSubs) {
+    $GroupName = "$($Sub.Name) Owners"
+    $SubId     = $SubIdByAlias[$Sub.Alias]
 
-foreach ($Sub in $Subscriptions) {
-    foreach ($Role in @("Owners", "Contributors", "Readers")) {
-        $DisplayName = "$($Sub.Name) $Role"
-        $Existing    = Get-AzADGroup -Filter "displayName eq '$DisplayName'" | Select-Object -First 1
-        if ($Existing) {
-            Write-Host "Group '$DisplayName' already exists (Id: $($Existing.Id))"
-            $GroupIds[$DisplayName] = $Existing.Id
+    if (-not $GroupIds.ContainsKey($GroupName) -or -not $SubId) {
+        if ($DryRun) {
+            Write-Host "DRY RUN: would assign Owner role to '$GroupName' on subscription $($Sub.Alias)" -ForegroundColor Yellow
         } else {
-            $Nickname = $DisplayName -replace " ", "-" -replace "--", "-"
-            $NewGroup = New-AzADGroup -DisplayName $DisplayName -MailNickname $Nickname
-            Write-Host "Group '$DisplayName' created (Id: $($NewGroup.Id))"
-            $GroupIds[$DisplayName] = $NewGroup.Id
+            Write-Host "Missing group or subscription id for '$GroupName', skipping role assignment" -ForegroundColor Yellow
+        }
+        continue
+    }
+
+    $GroupId = $GroupIds[$GroupName]
+    $Scope   = "/subscriptions/$SubId"
+
+    $ExistingAssignment = Get-AzRoleAssignment -ObjectId $GroupId -RoleDefinitionName "Owner" -Scope $Scope -ErrorAction SilentlyContinue
+    if ($ExistingAssignment) {
+        Write-Host "Owner assignment for '$GroupName' already exists on $Scope"
+        continue
+    }
+
+    if (-not (Confirm-Action "assign Owner role to '$GroupName' on $Scope")) { continue }
+
+    $Assigned = $false
+    for ($i = 1; $i -le $RbacRetries -and -not $Assigned; $i++) {
+        try {
+            New-AzRoleAssignment -ObjectId $GroupId -RoleDefinitionName "Owner" -Scope $Scope -ErrorAction Stop | Out-Null
+            $Assigned = $true
+            Write-Host "Owner role assigned to '$GroupName' on $Scope"
+        } catch {
+            if ($i -lt $RbacRetries) {
+                Write-Host "Role assignment attempt $i for '$GroupName' failed, retrying in $RbacRetryWait s..." -ForegroundColor Yellow
+                Start-Sleep -Seconds $RbacRetryWait
+            } else {
+                Write-Error "Owner assignment for '$GroupName' on $Scope failed after $RbacRetries attempts: $($_.Exception.Message)"
+                return
+            }
         }
     }
 }
 
-# ── Add Technical Owner to Owners Groups ─────────────────────────────────────
-$User = Get-AzADUser -UserPrincipalName $TechnicalOwnerUPN
-
-foreach ($Sub in $Subscriptions) {
-    Add-AzADGroupMember `
-        -TargetGroupObjectId $GroupIds["$($Sub.Name) Owners"] `
-        -MemberObjectId      $User.Id
+if ($DryRun) {
+    Write-Host "Dry run complete. Nothing was changed." -ForegroundColor Yellow
+} else {
+    Write-Host "Done. Remember to configure PIM for the Owners group(s)."
 }
-
-# ── RBAC: Assign Owner Role to Owners Groups ──────────────────────────────────
-$SubMap = @(
-    @{ Id = $SubIdProd;    Name = $Subscriptions[0].Name },
-    @{ Id = $SubIdPreProd; Name = $Subscriptions[1].Name }
-)
-
-foreach ($Sub in $SubMap) {
-    New-AzRoleAssignment `
-        -ObjectId           $GroupIds["$($Sub.Name) Owners"] `
-        -RoleDefinitionName "Owner" `
-        -Scope              "/subscriptions/$($Sub.Id)"
-}
-
-Write-Host "Done. Remember to configure PIM for both Owners groups."
