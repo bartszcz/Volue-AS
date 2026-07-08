@@ -23,8 +23,8 @@ $Tags = @{
     "Cost Owner"       = "murat.yilmaz@volue.com"
     "Environment Type" = "Production"
     "Project Code"     = "305"
-    "Product Line"     = "Trading"
-    "Project Number"   = "-"
+    "Product Line"     = "Trading Solutions"
+    "Project Number"   = "Rigel"
     "Technical Owner"  = $TechnicalOwnerUPN
 }
 
