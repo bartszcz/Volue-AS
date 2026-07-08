@@ -11,8 +11,9 @@ $TenantId           = "9ce76d42-5ecb-4d8f-939b-a462ad28cf34"
 $BillingAccountName = "d7daa3ab-00b0-5157-f1c1-fee9bc0668ba:6274e3d1-6729-4a2a-90a8-a5074278ea1b_2019-05-31"
 $BillingProfileName = "QDNA-A7KS-BG7-PGB"
 $InvoiceSectionName = "OTP2-PY5C-PJA-PGB"
-$ManagementGroupId  = $TenantId  # group ID, not display name - tenant root group's id is the tenant guid
+$ManagementGroupId  = ""  # empty = tenant default group (usually tenant root), needs no permission. explicit placement needs write access on the group; group ID, not display name
 $TechnicalOwnerUPN  = "recep.guleryuz@volue.com"
+$Workload           = "Production"  # Production or DevTest
 
 # one entry per subscription to create - add or remove lines as needed
 $Subscriptions = @(
@@ -42,7 +43,8 @@ function Confirm-Action ($Description) {
         Write-Host "DRY RUN: would $Description" -ForegroundColor Yellow
         return $false
     }
-    $Answer = Read-Host "Confirm: $Description? (y/n)"
+    # ${} needed, otherwise the ? gets eaten as part of the variable name
+    $Answer = Read-Host "Confirm: ${Description}? (y/n)"
     return ($Answer -match "^[Yy]")
 }
 
@@ -95,20 +97,24 @@ Write-Host "Billing: subscription creation allowed on invoice section '$($Sectio
 
 # management group: must exist and be visible - also catches display names used instead of ids
 # plain rest call on purpose, Get-AzManagementGroup tries to register the resource provider on the default subscription
-try {
-    $MGResponse = Invoke-AzRestMethod -Method GET `
-        -Path "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)?api-version=2020-05-01" `
-        -ErrorAction Stop
-} catch {
-    Write-Error "Management group check failed: $($_.Exception.Message)"
-    return
+if ($ManagementGroupId) {
+    try {
+        $MGResponse = Invoke-AzRestMethod -Method GET `
+            -Path "/providers/Microsoft.Management/managementGroups/$($ManagementGroupId)?api-version=2020-05-01" `
+            -ErrorAction Stop
+    } catch {
+        Write-Error "Management group check failed: $($_.Exception.Message)"
+        return
+    }
+    if ($MGResponse.StatusCode -ne 200) {
+        Write-Error "Management group '$ManagementGroupId' not found or no access (HTTP $($MGResponse.StatusCode)). Use the group ID, not the display name. $($MGResponse.Content)"
+        return
+    }
+    $MG = $MGResponse.Content | ConvertFrom-Json
+    Write-Host "Management group: found '$($MG.properties.displayName)' ($ManagementGroupId). Note: placement also needs write access on it."
+} else {
+    Write-Host "Management group: not set, subscription lands in the tenant default group"
 }
-if ($MGResponse.StatusCode -ne 200) {
-    Write-Error "Management group '$ManagementGroupId' not found or no access (HTTP $($MGResponse.StatusCode)). Use the group ID, not the display name - for the tenant root that's the tenant guid. $($MGResponse.Content)"
-    return
-}
-$MG = $MGResponse.Content | ConvertFrom-Json
-Write-Host "Management group: found '$($MG.properties.displayName)' ($ManagementGroupId)"
 
 # graph: token must carry the scopes the group steps need
 $MgContext = Get-MgContext
@@ -129,7 +135,8 @@ foreach ($Sub in $Subscriptions) {
         continue
     }
 
-    if (-not (Confirm-Action "create subscription '$($Sub.Name)' (alias $($Sub.Alias), workload DevTest, management group $ManagementGroupId)")) {
+    $MGText = if ($ManagementGroupId) { "management group $ManagementGroupId" } else { "default management group" }
+    if (-not (Confirm-Action "create subscription '$($Sub.Name)' (alias $($Sub.Alias), workload $Workload, $MGText)")) {
         if (-not $DryRun) {
             Write-Host "Skipped $($Sub.Alias) - all further steps for it are skipped too" -ForegroundColor Yellow
             $SkippedSubs[$Sub.Alias] = $true
@@ -137,15 +144,16 @@ foreach ($Sub in $Subscriptions) {
         continue
     }
 
+    $AdditionalProps = @{ subscriptionTenantId = $TenantId }
+    if ($ManagementGroupId) {
+        $AdditionalProps.managementGroupId = "/providers/Microsoft.Management/managementGroups/$ManagementGroupId"
+    }
     $Body = @{
         properties = @{
             billingScope         = $BillingScope
             displayName          = $Sub.Name
-            workload             = "DevTest"
-            additionalProperties = @{
-                subscriptionTenantId = $TenantId
-                managementGroupId    = "/providers/Microsoft.Management/managementGroups/$ManagementGroupId"
-            }
+            workload             = $Workload
+            additionalProperties = $AdditionalProps
         }
     } | ConvertTo-Json -Depth 5
 
