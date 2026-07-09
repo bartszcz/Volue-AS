@@ -3,7 +3,8 @@
 # -DryRun shows what would happen without changing anything; normal run asks y/n before each change
 
 param(
-    [switch]$DryRun
+    [switch]$DryRun,
+    [string]$OutputPath = "C:\Temp\subscription-creation"
 )
 
 # --- settings ---
@@ -41,14 +42,19 @@ $RbacRetryWait   = 15
 function Confirm-Action ($Description) {
     if ($DryRun) {
         Write-Host "DRY RUN: would $Description" -ForegroundColor Yellow
+        $script:Summary += [pscustomobject]@{ Action = "dry run"; Item = $Description }
         return $false
     }
     # ${} needed, otherwise the ? gets eaten as part of the variable name
     $Answer = Read-Host "Confirm: ${Description}? (y/n)"
-    return ($Answer -match "^[Yy]")
+    if ($Answer -match "^[Yy]") { return $true }
+    $script:Summary += [pscustomobject]@{ Action = "skipped"; Item = $Description }
+    return $false
 }
 
 # --- main ---
+
+$Summary = @()
 
 foreach ($Module in $RequiredModules) {
     if (-not (Get-Module -ListAvailable -Name $Module)) {
@@ -127,11 +133,13 @@ foreach ($Scope in @("Group.ReadWrite.All", "User.Read.All")) {
 Write-Host "Graph: required scopes granted"
 
 # create aliases - skip existing ones, recreating an alias would spawn a duplicate subscription
-$SkippedSubs = @{}
+$SkippedSubs    = @{}
+$CreatedAliases = @()
 foreach ($Sub in $Subscriptions) {
     $Existing = Get-AzSubscriptionAlias -AliasName $Sub.Alias -ErrorAction SilentlyContinue
     if ($Existing) {
         Write-Host "Alias $($Sub.Alias) already exists (subscription $($Existing.SubscriptionId)), skipping create"
+        $Summary += [pscustomobject]@{ Action = "exists"; Item = "subscription $($Sub.Alias) ($($Existing.SubscriptionId))" }
         continue
     }
 
@@ -171,6 +179,7 @@ foreach ($Sub in $Subscriptions) {
         return
     }
     Write-Host "Alias $($Sub.Alias) submitted (HTTP $($Response.StatusCode))"
+    $CreatedAliases += $Sub.Alias
 }
 
 $ActiveSubs   = @($Subscriptions | Where-Object { -not $SkippedSubs[$_.Alias] })
@@ -207,6 +216,7 @@ if ($DryRun) {
 
     foreach ($State in $ProvStates) { $SubIdByAlias[$State.AliasName] = $State.SubscriptionId }
     foreach ($Sub in $ActiveSubs) { Write-Host "$($Sub.Alias): $($SubIdByAlias[$Sub.Alias])" }
+    foreach ($Alias in $CreatedAliases) { $Summary += [pscustomobject]@{ Action = "created"; Item = "subscription $Alias ($($SubIdByAlias[$Alias]))" } }
 } else {
     Write-Host "No subscriptions left to process."
 }
@@ -218,6 +228,7 @@ foreach ($Sub in $ActiveSubs) {
     try {
         Update-AzTag -ResourceId "/subscriptions/$SubId" -Tag $Tags -Operation Merge -ErrorAction Stop | Out-Null
         Write-Host "Tags set on $($Sub.Alias)"
+        $Summary += [pscustomobject]@{ Action = "tagged"; Item = "$($Tags.Count) tags merged onto $($Sub.Alias)" }
     } catch {
         Write-Error "Tagging $($Sub.Alias) failed: $($_.Exception.Message)"
         return
@@ -237,6 +248,7 @@ foreach ($Sub in $ActiveSubs) {
         if ($ExistingGroup) {
             Write-Host "Group '$DisplayName' already exists (Id: $($ExistingGroup.Id))"
             $GroupIds[$DisplayName] = $ExistingGroup.Id
+            $Summary += [pscustomobject]@{ Action = "exists"; Item = "group '$DisplayName' ($($ExistingGroup.Id))" }
             continue
         }
         if (-not (Confirm-Action "create group '$DisplayName'")) { continue }
@@ -249,6 +261,7 @@ foreach ($Sub in $ActiveSubs) {
         }
         Write-Host "Group '$DisplayName' created (Id: $($NewGroup.Id))"
         $GroupIds[$DisplayName] = $NewGroup.Id
+        $Summary += [pscustomobject]@{ Action = "created"; Item = "group '$DisplayName' ($($NewGroup.Id))" }
     }
 }
 
@@ -278,12 +291,14 @@ foreach ($Sub in $ActiveSubs) {
     }
     if ($Members.Id -contains $User.Id) {
         Write-Host "$TechnicalOwnerUPN already in '$GroupName'"
+        $Summary += [pscustomobject]@{ Action = "exists"; Item = "$TechnicalOwnerUPN in '$GroupName'" }
         continue
     }
     if (-not (Confirm-Action "add $TechnicalOwnerUPN to '$GroupName'")) { continue }
     try {
         New-MgGroupMember -GroupId $GroupId -DirectoryObjectId $User.Id -ErrorAction Stop
         Write-Host "Added $TechnicalOwnerUPN to '$GroupName'"
+        $Summary += [pscustomobject]@{ Action = "added"; Item = "$TechnicalOwnerUPN to '$GroupName'" }
     } catch {
         Write-Error "Adding $TechnicalOwnerUPN to '$GroupName' failed: $($_.Exception.Message)"
         return
@@ -310,6 +325,7 @@ foreach ($Sub in $ActiveSubs) {
     $ExistingAssignment = Get-AzRoleAssignment -ObjectId $GroupId -RoleDefinitionName "Owner" -Scope $Scope -ErrorAction SilentlyContinue
     if ($ExistingAssignment) {
         Write-Host "Owner assignment for '$GroupName' already exists on $Scope"
+        $Summary += [pscustomobject]@{ Action = "exists"; Item = "Owner role for '$GroupName' on $Scope" }
         continue
     }
 
@@ -321,6 +337,7 @@ foreach ($Sub in $ActiveSubs) {
             New-AzRoleAssignment -ObjectId $GroupId -RoleDefinitionName "Owner" -Scope $Scope -ErrorAction Stop | Out-Null
             $Assigned = $true
             Write-Host "Owner role assigned to '$GroupName' on $Scope"
+            $Summary += [pscustomobject]@{ Action = "assigned"; Item = "Owner role for '$GroupName' on $Scope" }
         } catch {
             if ($i -lt $RbacRetries) {
                 Write-Host "Role assignment attempt $i for '$GroupName' failed, retrying in $RbacRetryWait s..." -ForegroundColor Yellow
@@ -331,6 +348,26 @@ foreach ($Sub in $ActiveSubs) {
             }
         }
     }
+}
+
+Write-Host ""
+Write-Host "Summary:"
+if ($Summary.Count -gt 0) {
+    $Summary | Format-Table -Property Action, Item -AutoSize -Wrap | Out-String -Width 200 | Write-Host
+    try {
+        if (-not (Test-Path $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null }
+        $Stamp    = Get-Date -Format "yyyyMMdd_HHmm"
+        $JsonFile = Join-Path $OutputPath "subscription-creation_$Stamp.json"
+        $CsvFile  = Join-Path $OutputPath "subscription-creation_$Stamp.csv"
+        # -InputObject keeps a single entry as a json array
+        ConvertTo-Json -InputObject $Summary | Out-File -FilePath $JsonFile -Encoding utf8
+        $Summary | Export-Csv -Path $CsvFile -NoTypeInformation -Encoding utf8
+        Write-Host "Summary written to $JsonFile and $CsvFile"
+    } catch {
+        Write-Warning "Could not write summary files to ${OutputPath}: $($_.Exception.Message)"
+    }
+} else {
+    Write-Host "Nothing to report."
 }
 
 if ($DryRun) {
