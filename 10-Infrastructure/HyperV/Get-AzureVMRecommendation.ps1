@@ -1,105 +1,9 @@
-<#
-.SYNOPSIS
-    Recommends an Azure VM SKU and estimates monthly cost for one or more Hyper-V VMs.
+# Get-AzureVMRecommendation.ps1 - recommends an Azure VM SKU + estimated monthly cost for Hyper-V VMs
+# bartek / volue ito / 2026-07
 
-.DESCRIPTION
-    Takes Hyper-V VM configuration data (single VM on the command line, a batch file, or
-    a regex-filtered subset of a fleet export) and produces a sized Azure VM
-    recommendation plus an estimated monthly cost, using the Azure Retail Prices API.
-
-    Sizing is not a naive 1:1 resource copy:
-      - vCPU is sized on observed peak utilization when available, otherwise on the
-        allocated vCPU count.
-      - RAM is sized on sampled memory demand, then dynamic-memory maximum, then
-        assigned/startup RAM - whichever is the most accurate figure available.
-      - The vCPU:RAM ratio picks the VM family: ~4 GB/vCPU -> D-series (general
-        purpose, default), >6 GB/vCPU -> E-series (memory optimized), <3 GB/vCPU ->
-        F-series (compute optimized).
-      - Each disk is rounded up to the next standard Azure managed disk size tier, and
-        escalated from Standard SSD -> Premium SSD -> Premium SSD v2/Ultra based on
-        observed IOPS/throughput. Missing IOPS data defaults to Premium SSD with an
-        "unverified" warning rather than silently under-sizing.
-      - Generation/SecureBoot/vTPM drive a Trusted Launch eligibility flag.
-      - Guest OS is checked against a static endorsed-OS list; Windows Server guests are
-        flagged as potentially Azure Hybrid Benefit eligible (license ownership cannot be
-        verified programmatically - it is always left for manual confirmation).
-      - Differencing and pass-through disks produce a hard warning since they cannot be
-        sized/migrated as-is.
-
-    The SKU reference table (vCPU/RAM per SKU) and the storage per-GB rates are
-    hardcoded - no API call is needed for the sizing step itself, only for compute
-    pricing. A failed or throttled price lookup does not fail the batch: that VM's cost
-    fields are left $null with a CostNote explaining why.
-
-.PARAMETER VMName
-    (Manual mode) Name of the single VM being sized.
-
-.PARAMETER vCPU
-    (Manual mode) Allocated virtual CPU count.
-
-.PARAMETER RAMGB
-    (Manual mode) Assigned RAM in GB.
-
-.PARAMETER DiskSizesGB
-    (Manual mode) Provisioned size in GB of each disk attached to the VM.
-
-.PARAMETER Generation
-    (Manual mode) Hyper-V VM generation, 1 or 2. Default 2.
-
-.PARAMETER SecureBoot
-    (Manual mode) Switch - pass it when Secure Boot is enabled on the VM.
-
-.PARAMETER GuestOS
-    (Manual mode) Guest operating system name/edition, e.g. 'Windows Server 2022
-    Standard' or 'Ubuntu 22.04 LTS'. Used for endorsed-OS and Hybrid Benefit checks.
-
-.PARAMETER InputCsv
-    (Batch/Regex mode) Path to a CSV file of VM records - either the CSV produced by
-    Get-HyperVAzureSizingInfo.ps1, or a simple manual-style CSV with columns VMName,
-    vCPU, RAMGB, DiskSizesGB (pipe- or comma-delimited), Generation, SecureBoot, GuestOS.
-
-.PARAMETER InputJson
-    (Batch/Regex mode) Path to a JSON file of VM records, in either of the two schemas
-    described above for -InputCsv.
-
-.PARAMETER NameFilter
-    (Regex mode) .NET regular expression applied to VMName after loading -InputCsv/
-    -InputJson. Only matching VMs are sized. Case-insensitive unless -CaseSensitive is
-    supplied. Example: '^SQL\d{2}-(PROD|UAT)$'.
-
-.PARAMETER CaseSensitive
-    (Regex mode) Makes -NameFilter matching case-sensitive.
-
-.PARAMETER Region
-    Azure region used for both the SKU price lookup and as metadata on the output.
-    Default 'westeurope'.
-
-.PARAMETER Currency
-    Currency code requested from the Azure Retail Prices API. Default 'EUR'.
-
-.PARAMETER OutputDirectory
-    Directory the CSV/JSON output files are written to. Defaults to the script's own
-    directory.
-
-.PARAMETER OutputBaseName
-    Base file name (without extension) for the CSV/JSON output. Defaults to
-    'AzureVMRecommendation'.
-
-.EXAMPLE
-    .\Get-AzureVMRecommendation.ps1 -VMName 'APP01' -vCPU 4 -RAMGB 16 -DiskSizesGB 127,512 -Generation 2 -SecureBoot -GuestOS 'Windows Server 2022 Standard'
-
-    Manual single-VM sizing.
-
-.EXAMPLE
-    .\Get-AzureVMRecommendation.ps1 -InputJson .\HyperV-AzureSizingInfo.json -Region westeurope -Currency EUR
-
-    Batch-size every VM in a collector export.
-
-.EXAMPLE
-    .\Get-AzureVMRecommendation.ps1 -InputJson .\HyperV-AzureSizingInfo.json -NameFilter '^SQL\d{2}-(PROD|UAT)$'
-
-    Size only the production/UAT SQL hosts out of a full fleet export.
-#>
+# manual: .\Get-AzureVMRecommendation.ps1 -VMName APP01 -vCPU 4 -RAMGB 16 -DiskSizesGB 127,512 -SecureBoot -GuestOS 'Windows Server 2022 Standard'
+# batch:  .\Get-AzureVMRecommendation.ps1 -InputJson C:\Temp\Get-HyperVAzureSizingInfo\Get-HyperVAzureSizingInfo_<stamp>.json
+# subset: add -NameFilter '^SQL\d{2}-(PROD|UAT)$' (regex on VMName)
 [CmdletBinding(DefaultParameterSetName = 'Manual')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Manual')]
@@ -143,16 +47,27 @@ param(
     [string] $Currency = 'EUR',
 
     [Parameter()]
-    [string] $OutputDirectory = $PSScriptRoot,
-
-    [Parameter()]
-    [string] $OutputBaseName = 'AzureVMRecommendation'
+    [string] $OutputPath = 'C:\Temp\Get-AzureVMRecommendation'
 )
 
-# ============================================================================
-# Reference data (static - no API call needed for sizing, only for pricing)
-# ============================================================================
+# --- settings ---
 
+$CpuHeadroomFactor = 1.3    # sizing margin on top of observed peak cpu
+$RamHeadroomFactor = 1.15   # sizing margin on top of sampled memory demand
+$RamPerVcpuForE    = 6      # >6 GB/vCPU -> E-series (memory optimized)
+$RamPerVcpuForF    = 3      # <3 GB/vCPU -> F-series (compute optimized), else D-series
+$HoursPerMonth     = 730
+
+# disk escalates standard ssd -> premium ssd -> premium v2/ultra on summed avg read+write io
+$PremiumIopsThreshold  = 500
+$PremiumTputThreshold  = 60     # MB/s
+$UltraIopsThreshold    = 20000
+$UltraTputThreshold    = 900    # MB/s
+
+$PriceApiMaxPages   = 5
+$PriceApiTimeoutSec = 20
+
+# reference data - static on purpose, sizing needs no API call, only pricing does
 $script:SkuTable = @(
     [pscustomobject]@{ Family = 'D'; Sku = 'D2s_v5';  vCPU = 2;  RAMGB = 8   }
     [pscustomobject]@{ Family = 'D'; Sku = 'D4s_v5';  vCPU = 4;  RAMGB = 16  }
@@ -186,9 +101,7 @@ $script:EndorsedOsPatterns = @(
     'Debian ?(9|10|11|12)'
 )
 
-# ============================================================================
-# Helpers
-# ============================================================================
+# --- functions ---
 
 function ConvertTo-NullableDouble {
     param([object] $Value)
@@ -211,9 +124,7 @@ function ConvertTo-NullableBool {
 }
 
 function ConvertTo-ScalarValue {
-    # JSON round-tripping (or a single-item PowerShell collection serialized oddly) can
-    # leave a field that should be a scalar wrapped in an array. Unwrap it before casting
-    # so a stray wrapper doesn't throw a hard-to-diagnose "Object[] to Int32" error.
+    # json round-trip can wrap a scalar in a one-item array - unwrap before casting
     param([object] $Value)
     if ($Value -is [array]) {
         if ($Value.Count -eq 0) { return $null }
@@ -239,8 +150,7 @@ function Split-DelimitedField {
 }
 
 function New-NormalizedVmRecord {
-    # Canonical shape every sizing function below consumes, regardless of source
-    # (manual params, collector JSON, collector CSV, or a hand-written simple CSV/JSON).
+    # canonical shape every sizing function consumes, regardless of input source
     param(
         [string] $VMName,
         [int] $ProcessorCount,
@@ -291,12 +201,8 @@ function ConvertFrom-CollectorDisk {
 }
 
 function Import-VmSizingRecords {
-    <#
-        Shared loader for Batch and Regex input modes. Understands two shapes for both
-        CSV and JSON: the Get-HyperVAzureSizingInfo.ps1 collector schema (ProcessorCount,
-        MemoryAssignedGB, nested/flattened Disks, ...), and a simpler hand-authored
-        schema mirroring the manual-mode parameters (vCPU, RAMGB, DiskSizesGB, GuestOS).
-    #>
+    # understands two csv/json shapes: the Get-HyperVAzureSizingInfo.ps1 collector schema
+    # and a simple hand-written one (VMName, vCPU, RAMGB, DiskSizesGB, GuestOS)
     param(
         [string] $InputCsv,
         [string] $InputJson,
@@ -316,13 +222,13 @@ function Import-VmSizingRecords {
     if ($isJson) {
         if (-not (Test-Path -LiteralPath $InputJson)) { throw "Input JSON file not found: $InputJson" }
         $jsonText = Get-Content -LiteralPath $InputJson -Raw
-        # A stray BOM or other leading character before the JSON structure (seen from files
-        # that have been re-saved/re-encoded by another tool) can make ConvertFrom-Json
-        # misparse or silently truncate rather than throw. Strip anything before the first
-        # '[' or '{' so parsing always sees clean JSON regardless of how the file got there.
+        # strip BOM/junk before the first [ or { - re-encoded files made ConvertFrom-Json fail silently
         $jsonStart = $jsonText.IndexOfAny(@('[', '{'))
         if ($jsonStart -gt 0) { $jsonText = $jsonText.Substring($jsonStart) }
-        $rawRows = @($jsonText | ConvertFrom-Json)
+        # ps5.1 ConvertFrom-Json emits a json array as ONE pipeline object, so
+        # @(pipe) wraps it instead of enumerating - assign first, then @()
+        $parsed = ConvertFrom-Json -InputObject $jsonText
+        $rawRows = @($parsed)
     } else {
         if (-not (Test-Path -LiteralPath $InputCsv)) { throw "Input CSV file not found: $InputCsv" }
         $rawRows = @(Import-Csv -LiteralPath $InputCsv)
@@ -389,7 +295,7 @@ function Import-VmSizingRecords {
                     -GuestOSName ([string](ConvertTo-ScalarValue $row.GuestOSName)) `
                     -SourceWarnings $sourceWarnings))
             } else {
-                # Simple manual-style schema: VMName, vCPU, RAMGB, DiskSizesGB, Generation, SecureBoot, GuestOS
+                # simple manual-style schema
                 $sizes = if ($isJson) { @($row.DiskSizesGB) } else { Split-DelimitedField $row.DiskSizesGB }
                 $disks = $sizes | ForEach-Object {
                     [pscustomobject]@{
@@ -430,10 +336,10 @@ function Import-VmSizingRecords {
 function Resolve-EffectiveVCPU {
     param($Record)
     if ($Record.CPUUsagePercentMax) {
-        $eff = [Math]::Ceiling($Record.ProcessorCount * ($Record.CPUUsagePercentMax / 100.0) * 1.3)
+        $eff = [Math]::Ceiling($Record.ProcessorCount * ($Record.CPUUsagePercentMax / 100.0) * $CpuHeadroomFactor)
         if ($eff -lt 1) { $eff = 1 }
         if ($eff -gt $Record.ProcessorCount) { $eff = $Record.ProcessorCount }
-        return [pscustomobject]@{ Value = [int]$eff; Basis = "peak utilization ($($Record.CPUUsagePercentMax)% observed, +30% headroom)" }
+        return [pscustomobject]@{ Value = [int]$eff; Basis = "peak utilization ($($Record.CPUUsagePercentMax)% observed, x$CpuHeadroomFactor headroom)" }
     }
     return [pscustomobject]@{ Value = [Math]::Max(1, $Record.ProcessorCount); Basis = 'allocated vCPU (no utilization data)' }
 }
@@ -441,10 +347,8 @@ function Resolve-EffectiveVCPU {
 function Resolve-EffectiveRAMGB {
     param($Record)
     if ($Record.MemoryDemandGB) {
-        # A VM physically cannot demand more memory than it's been assigned/allotted. Seeing
-        # that anyway is a known Hyper-V quirk (a stale Dynamic Memory counter left over from
-        # before DM was disabled) rather than a real requirement - clamp to the assigned/max
-        # ceiling and flag it instead of sizing off the bogus figure.
+        # demand > assigned/max is a stale dynamic memory counter, not a real requirement -
+        # clamp to the ceiling and warn instead of sizing off the bogus figure
         $ceilingCandidates = @()
         if ($Record.MemoryAssignedGB) { $ceilingCandidates += $Record.MemoryAssignedGB }
         if ($Record.MemoryMaximumGB) { $ceilingCandidates += $Record.MemoryMaximumGB }
@@ -458,8 +362,8 @@ function Resolve-EffectiveRAMGB {
             }
         }
 
-        $eff = [Math]::Ceiling($Record.MemoryDemandGB * 1.15)
-        return [pscustomobject]@{ Value = $eff; Basis = "sampled memory demand ($($Record.MemoryDemandGB) GB, +15% headroom)"; Warning = $null }
+        $eff = [Math]::Ceiling($Record.MemoryDemandGB * $RamHeadroomFactor)
+        return [pscustomobject]@{ Value = $eff; Basis = "sampled memory demand ($($Record.MemoryDemandGB) GB, x$RamHeadroomFactor headroom)"; Warning = $null }
     }
     if ($Record.DynamicMemoryEnabled -and $Record.MemoryMaximumGB) {
         return [pscustomobject]@{ Value = $Record.MemoryMaximumGB; Basis = 'dynamic memory maximum'; Warning = $null }
@@ -474,8 +378,8 @@ function Get-VMFamily {
     param([double] $EffectiveRAMGB, [int] $EffectiveVCPU)
     if ($EffectiveVCPU -le 0) { return 'D' }
     $ratio = $EffectiveRAMGB / $EffectiveVCPU
-    if ($ratio -gt 6) { return 'E' }
-    if ($ratio -lt 3) { return 'F' }
+    if ($ratio -gt $RamPerVcpuForE) { return 'E' }
+    if ($ratio -lt $RamPerVcpuForF) { return 'F' }
     return 'D'
 }
 
@@ -515,10 +419,10 @@ function Get-DiskPerformanceTier {
     $iops = 0.0 + (ConvertTo-NullableDouble $Disk.ReadIOPSAvg) + (ConvertTo-NullableDouble $Disk.WriteIOPSAvg)
     $tput = 0.0 + (ConvertTo-NullableDouble $Disk.ReadThroughputMBpsAvg) + (ConvertTo-NullableDouble $Disk.WriteThroughputMBpsAvg)
 
-    if ($iops -gt 20000 -or $tput -gt 900) {
+    if ($iops -gt $UltraIopsThreshold -or $tput -gt $UltraTputThreshold) {
         return [pscustomobject]@{ Tier = 'Premium SSD v2/Ultra'; Warning = 'Storage cost for this disk requires the Retail Prices API IOPS/throughput meters - call separately, not included in EstimatedMonthlyStorageCost.' }
     }
-    if ($iops -gt 500 -or $tput -gt 60) {
+    if ($iops -gt $PremiumIopsThreshold -or $tput -gt $PremiumTputThreshold) {
         return [pscustomobject]@{ Tier = 'Premium SSD'; Warning = $null }
     }
     return [pscustomobject]@{ Tier = 'Standard SSD'; Warning = $null }
@@ -534,12 +438,8 @@ function Test-EndorsedGuestOS {
 }
 
 function Get-AzureRetailPrice {
-    <#
-        Queries the Azure Retail Prices API for a single SKU/region/currency and returns
-        the lowest Consumption retailPrice, excluding Spot/low-priority meters and
-        matching the Windows meter only when the guest requires it. Returns $null (never
-        throws) so callers can fall back gracefully.
-    #>
+    # lowest consumption price for a sku/region, excluding spot/low-priority meters.
+    # returns $null instead of throwing so a failed lookup never kills the batch
     param(
         [string] $Sku,
         [string] $Region,
@@ -555,8 +455,8 @@ function Get-AzureRetailPrice {
 
         $items = New-Object System.Collections.Generic.List[object]
         $page = 0
-        while ($uri -and $page -lt 5) {
-            $response = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop -TimeoutSec 20
+        while ($uri -and $page -lt $PriceApiMaxPages) {
+            $response = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop -TimeoutSec $PriceApiTimeoutSec
             if ($response.Items) { $items.AddRange(@($response.Items)) }
             $uri = $response.NextPageLink
             $page++
@@ -590,10 +490,7 @@ function Get-DiskMonthlyCost {
     return $null
 }
 
-# ============================================================================
-# Sizing engine - one normalized record in, one recommendation object out
-# ============================================================================
-
+# sizing engine - one normalized record in, one recommendation object out
 function Get-VMSizingRecommendation {
     param($Record, [hashtable] $PriceCache, [string] $Region, [string] $Currency)
 
@@ -613,7 +510,7 @@ function Get-VMSizingRecommendation {
     if ($skuResult.Warning) { $warnings.Add($skuResult.Warning) }
     $sku = $skuResult.Sku
 
-    # ---- Disks ----
+    # disks
     $diskTierGB = New-Object System.Collections.Generic.List[double]
     $diskPerfTiers = New-Object System.Collections.Generic.List[string]
     $storageCost = 0.0
@@ -639,7 +536,7 @@ function Get-VMSizingRecommendation {
         if ($null -eq $diskCost) { $storageCostIsPartial = $true } else { $storageCost += $diskCost }
     }
 
-    # ---- Trusted Launch ----
+    # trusted launch
     $trustedLaunchEligible = $false
     if ($Record.Generation -eq 1) {
         $warnings.Add('Generation 1 VM - not eligible for Trusted Launch; requires conversion to a Generation 2 Azure image.')
@@ -651,7 +548,7 @@ function Get-VMSizingRecommendation {
         $warnings.Add('SecureBoot or vTPM disabled - Trusted Launch requires both enabled.')
     }
 
-    # ---- Guest OS / Hybrid Benefit ----
+    # guest os / hybrid benefit
     $isWindowsGuest = $Record.GuestOSName -like '*Windows*'
     if (-not (Test-EndorsedGuestOS -OSName $Record.GuestOSName)) {
         $osLabel = if ($Record.GuestOSName) { $Record.GuestOSName } else { '(unknown)' }
@@ -661,7 +558,7 @@ function Get-VMSizingRecommendation {
         $warnings.Add('Windows Server guest detected - potentially eligible for Azure Hybrid Benefit; confirm an existing eligible license before assuming the discount.')
     }
 
-    # ---- Cost ----
+    # cost
     $cacheKey = "$($sku.Sku)|$Region|$Currency|$isWindowsGuest"
     if (-not $PriceCache.ContainsKey($cacheKey)) {
         $PriceCache[$cacheKey] = Get-AzureRetailPrice -Sku $sku.Sku -Region $Region -Currency $Currency -RequiresWindowsMeter $isWindowsGuest
@@ -675,7 +572,7 @@ function Get-VMSizingRecommendation {
     if ($null -eq $hourlyPrice) {
         $costNote = 'price lookup failed - retry or use Azure Pricing Calculator manually'
     } else {
-        $computeCost = [Math]::Round($hourlyPrice * 730, 2)
+        $computeCost = [Math]::Round($hourlyPrice * $HoursPerMonth, 2)
         $totalCost = [Math]::Round($computeCost + $storageCost, 2)
         if ($storageCostIsPartial) {
             $costNote = 'storage cost is partial - one or more disks are Premium SSD v2/Ultra tier and require a separate IOPS/throughput-based price lookup'
@@ -704,9 +601,7 @@ function Get-VMSizingRecommendation {
     }
 }
 
-# ============================================================================
-# Main
-# ============================================================================
+# --- main ---
 
 $vmRecords = New-Object System.Collections.Generic.List[object]
 $skippedVMs = New-Object System.Collections.Generic.List[string]
@@ -767,12 +662,17 @@ if ($recommendations.Count -eq 0) {
     return
 }
 
-if (-not (Test-Path -LiteralPath $OutputDirectory)) {
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+try {
+    if (-not (Test-Path -LiteralPath $OutputPath)) {
+        New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction Stop | Out-Null
+    }
+} catch {
+    throw "Could not create output directory '$OutputPath': $($_.Exception.Message)"
 }
 
-$csvPath = Join-Path $OutputDirectory "$OutputBaseName.csv"
-$jsonPath = Join-Path $OutputDirectory "$OutputBaseName.json"
+$stamp = Get-Date -Format 'yyyyMMdd_HHmm'
+$csvPath = Join-Path $OutputPath "Get-AzureVMRecommendation_$stamp.csv"
+$jsonPath = Join-Path $OutputPath "Get-AzureVMRecommendation_$stamp.json"
 
 $csvRows = $recommendations | Select-Object VMName, RecommendedSKU, Family, vCPU, RAMGB,
     EffectiveVCPURequired, EffectiveRAMGBRequired, SizingBasis,
@@ -782,14 +682,18 @@ $csvRows = $recommendations | Select-Object VMName, RecommendedSKU, Family, vCPU
     TrustedLaunchEligible, CostNote,
     @{N = 'Warnings'; E = { $_.Warnings -join '|' } }
 
-$csvRows | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
-$recommendations | ConvertTo-Json -Depth 6 | Out-File -LiteralPath $jsonPath -Encoding UTF8
+try {
+    $csvRows | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+    $recommendations | ConvertTo-Json -Depth 6 | Out-File -LiteralPath $jsonPath -Encoding UTF8
+} catch {
+    throw "Failed to write output files to '$OutputPath': $($_.Exception.Message)"
+}
 
-Write-Host "`nRecommendations written:" -ForegroundColor Green
+Write-Host "`nDone. Exported to:" -ForegroundColor Green
 Write-Host "CSV  : $csvPath" -ForegroundColor Green
 Write-Host "JSON : $jsonPath" -ForegroundColor Green
 
-Write-Host "`n===== Recommendation Summary (sorted by estimated monthly cost, descending) =====" -ForegroundColor Cyan
+Write-Host "`nRecommendation summary (sorted by estimated monthly cost, descending):" -ForegroundColor Cyan
 $recommendations |
     Sort-Object -Property @{ Expression = { if ($null -ne $_.EstimatedMonthlyTotalCost) { $_.EstimatedMonthlyTotalCost } else { -1 } } } -Descending |
     Select-Object VMName, RecommendedSKU, vCPU, RAMGB, EstimatedMonthlyComputeCost, EstimatedMonthlyStorageCost, EstimatedMonthlyTotalCost, Currency,

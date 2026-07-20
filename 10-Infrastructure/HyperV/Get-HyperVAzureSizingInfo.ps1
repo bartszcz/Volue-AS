@@ -1,118 +1,12 @@
-<#
-.SYNOPSIS
-    Collects Hyper-V VM configuration and (optionally) utilization data as input for
-    Azure VM sizing/cost estimation (see Get-AzureVMRecommendation.ps1).
+# Get-HyperVAzureSizingInfo.ps1 - collects Hyper-V VM config + utilization as sizing input for Get-AzureVMRecommendation.ps1
+# bartek / volue ito / 2026-07
 
-.DESCRIPTION
-    Enumerates VMs on one or more Hyper-V hosts and captures the fields needed to size
-    an equivalent Azure VM: vCPU count, memory configuration (static + dynamic +
-    live demand), per-disk provisioned/used size and type (including differencing and
-    pass-through disk detection), Generation/SecureBoot/vTPM (Trusted Launch inputs),
-    and best-effort guest OS identification via KVP data exchange.
-
-    Utilization (CPU %, memory demand, disk IOPS/throughput) is a point-in-time read by
-    default. Pass -SampleUtilization to poll repeatedly over a window and record
-    average/max, which produces a much more reliable sizing input than a single sample.
-
-    Output is written as both CSV and JSON (same dual-output pattern used elsewhere in
-    this repo). The JSON file preserves each VM's disks as a nested array; the CSV
-    flattens disks into pipe-delimited columns (DiskSizesGB, DiskUsedGB, etc.) since CSV
-    has no native concept of a nested array. Get-AzureVMRecommendation.ps1's loader
-    understands both shapes.
-
-    Read-only: this script does not modify any VM, disk, or host state.
-
-.PARAMETER ComputerName
-    One or more Hyper-V host names to query. Defaults to the local computer. Ignored (with a
-    warning) if -DiscoverHosts is also supplied.
-
-.PARAMETER DiscoverHosts
-    Instead of specifying -ComputerName, discover Hyper-V hosts by querying Active Directory
-    for computer accounts that have registered the "Microsoft Virtual Console Service" SPN -
-    every Hyper-V host registers this automatically when the role/VMMS service starts. Uses
-    built-in ADSI, no RSAT/ActiveDirectory module required. This is best-effort: a host whose
-    SPN registration failed or was removed (e.g. by GPO restricting computer self-write) will
-    not be found this way - cross-check the discovered count against your known inventory.
-
-.PARAMETER ADSearchBase
-    Optional LDAP distinguished name (e.g. 'OU=HyperV,OU=Servers,DC=contoso,DC=com') to scope
-    -DiscoverHosts to a specific OU instead of the whole domain. Ignored without -DiscoverHosts.
-
-.PARAMETER ADHostNamePrefix
-    Optional computer-name prefix (e.g. 'hs' to match hs01, hs02, ...) widening -DiscoverHosts
-    to also match on name, in case a host's SPN registration is missing. Matched with OR
-    against the SPN check, so it only adds coverage - it never excludes an SPN-registered host
-    that doesn't happen to match the prefix. Ignored without -DiscoverHosts.
-
-.PARAMETER ADServer
-    Domain controller or domain FQDN to bind to explicitly for -DiscoverHosts (e.g.
-    'dc01.contoso.com' or 'contoso.com'). Required if the machine running this script is not
-    domain-joined: ADSI's serverless bind ("LDAP://RootDSE" with no server) relies on Windows'
-    domain locator, which only works from a domain-joined machine. Naming a server bypasses
-    that locator and connects directly instead. Ignored without -DiscoverHosts.
-
-.PARAMETER Credential
-    Credential used for both the -DiscoverHosts AD query and for querying the Hyper-V hosts
-    themselves. Required whenever the identity running this script (e.g. your day-to-day
-    Windows logon) isn't the one with AD read / Hyper-V admin rights - common in environments
-    that use separate privileged accounts for server management.
-
-.PARAMETER VMName
-    Optional name filter(s) passed to Get-VM (wildcards supported, e.g. 'SQL*'). Defaults
-    to all VMs on each host. For regex-based filtering, collect everything here and apply
-    -NameFilter in Get-AzureVMRecommendation.ps1 instead.
-
-.PARAMETER SampleUtilization
-    When set, polls CPU/memory/disk counters repeatedly instead of taking a single
-    snapshot, and records average and maximum values.
-
-.PARAMETER SampleDurationSeconds
-    Total time to sample when -SampleUtilization is set. Default 60 seconds.
-
-.PARAMETER SampleIntervalSeconds
-    Time between samples when -SampleUtilization is set. Default 5 seconds.
-
-.PARAMETER OutputDirectory
-    Directory the CSV/JSON output files are written to. Defaults to the script's own
-    directory.
-
-.PARAMETER OutputBaseName
-    Base file name (without extension) for the CSV/JSON output. Defaults to
-    'HyperV-AzureSizingInfo'.
-
-.EXAMPLE
-    .\Get-HyperVAzureSizingInfo.ps1
-
-    Snapshot every VM on the local Hyper-V host, no utilization sampling.
-
-.EXAMPLE
-    .\Get-HyperVAzureSizingInfo.ps1 -ComputerName HV-HOST01,HV-HOST02 -SampleUtilization -SampleDurationSeconds 120
-
-    Sample CPU/memory/disk utilization for two hosts over a 2-minute window.
-
-.EXAMPLE
-    .\Get-HyperVAzureSizingInfo.ps1 -VMName 'SQL*' -OutputDirectory 'C:\Reports' -OutputBaseName 'SQL-Fleet'
-
-    Collect only VMs whose name starts with SQL, writing C:\Reports\SQL-Fleet.csv/.json.
-
-.EXAMPLE
-    .\Get-HyperVAzureSizingInfo.ps1 -DiscoverHosts -ADSearchBase 'OU=HyperV,OU=Servers,DC=contoso,DC=com'
-
-    Discover every Hyper-V host under a specific OU via its AD SPN, then collect from all of them.
-
-.EXAMPLE
-    .\Get-HyperVAzureSizingInfo.ps1 -DiscoverHosts -ADHostNamePrefix 'hs'
-
-    Discover Hyper-V hosts domain-wide, matching either the SPN or a name starting with 'hs'.
-
-.EXAMPLE
-    $cred = Get-Credential 'CONTOSO\svc-hvadmin'
-    .\Get-HyperVAzureSizingInfo.ps1 -DiscoverHosts -ADHostNamePrefix 'hs' -ADServer 'contoso.com' -Credential $cred
-
-    From a non-domain-joined workstation, using a separate privileged account: bind to AD
-    explicitly by domain FQDN/DC name with -ADServer, and use -Credential for both the AD
-    query and the subsequent per-host Get-VM calls.
-#>
+# read-only, does not touch vm/disk/host state. json keeps disks nested, csv flattens them pipe-delimited.
+# local:    .\Get-HyperVAzureSizingInfo.ps1
+# hosts:    .\Get-HyperVAzureSizingInfo.ps1 -ComputerName HV01,HV02 -SampleUtilization -SampleDurationSeconds 120
+# vm list:  .\Get-HyperVAzureSizingInfo.ps1 -ComputerName HV01,HV02 -VMName SQL01,SQL02  (each vm found on whichever host has it)
+# vm csv:   .\Get-HyperVAzureSizingInfo.ps1 -VMNameCsv C:\Temp\vms.csv  (plain list: one name per line; headered csv: VMName column = vm filter, ComputerName column = host list, so a previous export of this script works as-is)
+# discover: .\Get-HyperVAzureSizingInfo.ps1 -DiscoverHosts -ADHostNamePrefix 'hs' -ADServer contoso.com -Credential (Get-Credential 'DOMAIN\svc-hvadmin')
 [CmdletBinding()]
 param(
     [Parameter()]
@@ -137,6 +31,9 @@ param(
     [string[]] $VMName = @('*'),
 
     [Parameter()]
+    [string] $VMNameCsv,
+
+    [Parameter()]
     [switch] $SampleUtilization,
 
     [Parameter()]
@@ -146,37 +43,14 @@ param(
     [int] $SampleIntervalSeconds = 5,
 
     [Parameter()]
-    [string] $OutputDirectory = $PSScriptRoot,
-
-    [Parameter()]
-    [string] $OutputBaseName = 'HyperV-AzureSizingInfo'
+    [string] $OutputPath = 'C:\Temp\Get-HyperVAzureSizingInfo'
 )
 
-if (-not (Get-Module -ListAvailable -Name Hyper-V)) {
-    throw @'
-The Hyper-V PowerShell module is not installed on this machine, so Get-VM/Get-VHD/etc. are unavailable.
-This module does not require the Hyper-V role itself to be installed locally - it just needs to be present
-so this script can query remote hosts via -ComputerName. Install it with one of:
-  - Windows Server (as a management box, no Hyper-V role needed): Install-WindowsFeature -Name Hyper-V-PowerShell
-  - Windows 10/11 client: Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-Management-PowerShell -All
-  - Or via Settings > Optional Features > "RSAT: Hyper-V Management Tools"
-Then re-run this script.
-'@
-}
-
-if ($Credential -and $Credential.UserName -notmatch '[\\@]') {
-    Write-Warning @"
--Credential '$($Credential.UserName)' has no domain qualifier. Hyper-V's remote host connection
-(WMI/DCOM) requires 'DOMAIN\user' or 'user@domain.com' and will reject a bare username with
-"The user name '...' is not valid. (Parameter 'logonName')" for every host. Re-run Get-Credential
-as e.g. 'DOMAIN\$($Credential.UserName)' if you see that error.
-"@
-}
+# --- functions ---
 
 function Write-SkipTips {
-    # Get-VM with an explicit -Credential can't use plain DCOM (which only supports the
-    # current logon token), so the Hyper-V module falls back to a WinRM/CredSSP session -
-    # and CredSSP is off by default on a client. Surface the fix once, not once per host.
+    # Get-VM with explicit -Credential falls back to WinRM/CredSSP (DCOM only takes the
+    # current logon token) and CredSSP is off by default on clients - surface the fix once
     param([System.Collections.Generic.List[string]] $SkippedItems)
     if (($SkippedItems | Where-Object { $_ -match 'CredSSP' } | Select-Object -First 1)) {
         Write-Host "`nTip: CredSSP failures above usually mean the client needs:" -ForegroundColor Yellow
@@ -186,18 +60,13 @@ function Write-SkipTips {
 }
 
 function Get-EscapedLdapFilterValue {
-    # Escapes the handful of characters that are special inside an LDAP filter clause.
     param([string] $Value)
     return $Value -replace '\\', '\5c' -replace '\*', '\2a' -replace '\(', '\28' -replace '\)', '\29'
 }
 
 function New-AdDirectoryEntry {
-    # Binds an LDAP path, using explicit credentials when supplied instead of the current
-    # Windows logon - required when the caller's own identity has no AD/Hyper-V rights
-    # (separate privileged account model) and/or this machine isn't domain-joined.
-    # DirectoryEntry binds lazily and silently leaves .Properties as $null on failure rather
-    # than throwing, so RefreshCache() forces the bind now to surface the real error instead
-    # of a confusing "cannot index into a null array" further down when .Properties is read.
+    # DirectoryEntry binds lazily and leaves .Properties $null on failure instead of throwing -
+    # RefreshCache() forces the bind now so the real error surfaces here, not further down
     param([string] $Path, [System.Management.Automation.PSCredential] $Credential)
     $entry = if ($Credential) {
         $networkCred = $Credential.GetNetworkCredential()
@@ -214,18 +83,9 @@ function New-AdDirectoryEntry {
 }
 
 function Find-HyperVHostsInAD {
-    <#
-        Best-effort Hyper-V host discovery via Active Directory: every host registers a
-        "Microsoft Virtual Console Service" SPN on its own computer account when the Hyper-V
-        role/VMMS service starts, so this is a single LDAP query rather than a network scan.
-        Uses plain ADSI (System.DirectoryServices) - no RSAT ActiveDirectory module needed.
-        A host with a missing/removed SPN registration will not be found this way unless
-        -NamePrefix is also supplied to widen the match.
-
-        -Server/-Credential bind directly to a named DC/domain with explicit credentials
-        instead of the "serverless" LDAP://RootDSE + current-logon-token path, which only
-        works from a domain-joined machine running as an account with AD read rights.
-    #>
+    # every hyper-v host self-registers the "Microsoft Virtual Console Service" SPN, so this is
+    # one LDAP query via plain ADSI - no RSAT needed. best-effort: a host with a missing SPN is
+    # only found if -NamePrefix also matches it
     param([string] $SearchBase, [string] $NamePrefix, [string] $Server, [System.Management.Automation.PSCredential] $Credential)
 
     $serverSegment = if ($Server) { "$Server/" } else { '' }
@@ -269,18 +129,6 @@ function Find-HyperVHostsInAD {
     }
 }
 
-if ($DiscoverHosts) {
-    if ($PSBoundParameters.ContainsKey('ComputerName')) {
-        Write-Warning "-ComputerName was also specified; ignoring it since -DiscoverHosts takes precedence."
-    }
-    Write-Host 'Discovering Hyper-V hosts from Active Directory (SPN-based, best-effort) ...' -ForegroundColor Cyan
-    $ComputerName = Find-HyperVHostsInAD -SearchBase $ADSearchBase -NamePrefix $ADHostNamePrefix -Server $ADServer -Credential $Credential
-    if (-not $ComputerName -or @($ComputerName).Count -eq 0) {
-        throw 'No Hyper-V hosts discovered via AD lookup. Verify -ADSearchBase (if used), confirm hosts have registered the "Microsoft Virtual Console Service" SPN or match -ADHostNamePrefix, or specify -ComputerName explicitly.'
-    }
-    Write-Host "Discovered $(@($ComputerName).Count) Hyper-V host(s): $($ComputerName -join ', ')" -ForegroundColor Cyan
-}
-
 function ConvertBytesToGB {
     param([Nullable[double]] $Bytes)
     if ($null -eq $Bytes) { return $null }
@@ -288,12 +136,8 @@ function ConvertBytesToGB {
 }
 
 function Get-VMGuestOSInfo {
-    <#
-        Best-effort guest OS lookup via Hyper-V's KVP (Key-Value Pair) data exchange.
-        Requires the "Guest Service Interface" / Data Exchange integration service to be
-        running inside the guest. Returns $null fields (not a throw) when unavailable so
-        callers can flag it as a warning instead of failing the VM.
-    #>
+    # best-effort guest os via KVP data exchange - needs the Data Exchange integration service
+    # running in the guest. returns $null fields instead of throwing so the vm isn't failed
     param(
         [Parameter(Mandatory)] [string] $Name,
         [Parameter(Mandatory)] [string] $ComputerName,
@@ -347,8 +191,7 @@ function Get-VMGuestOSInfo {
         $result.OSVersion = $osVersion
         $result.IntegrationServicesVersion = $isVersion
     } catch {
-        # Data Exchange not enabled, older host without this WMI class, or access denied.
-        # Leave fields $null; caller records a warning.
+        # data exchange off, older host, or access denied - leave $null, caller warns
     }
 
     return $result
@@ -400,8 +243,7 @@ function Get-VMDiskRecords {
                 $record.SizeGB         = ConvertBytesToGB $vhd.Size
                 $record.FileSizeGB     = ConvertBytesToGB $vhd.FileSize
             } catch {
-                # Could not read the VHD (host unreachable, orphaned path, permissions). Leave
-                # size fields $null so the caller can flag it rather than sizing on bad data.
+                # unreadable vhd (unreachable, orphaned, permissions) - leave sizes $null, caller flags it
             }
         }
 
@@ -420,14 +262,9 @@ function Get-VMDiskRecords {
 }
 
 function Get-VMDiskIoStats {
-    <#
-        Best-effort per-disk IOPS/throughput sampling via the "Hyper-V Virtual Storage
-        Device" counter set, matched back to a VHD path by substring. Matching disk
-        counter instances to VHD paths is inherently fuzzy on Hyper-V (instance names
-        vary by host version), so failures here are silent by design — the recommendation
-        script already treats missing IOPS data as "unverified" rather than an error.
-        Returns a hashtable keyed by VHD path, or $null on any failure.
-    #>
+    # per-disk iops/throughput from the "Hyper-V Virtual Storage Device" counters, matched to
+    # vhd paths by substring - fuzzy on purpose, instance names vary by host version. fails
+    # silent by design: the recommendation script treats missing iops as "unverified" anyway
     param(
         [Parameter(Mandatory)] [string] $ComputerName,
         [Parameter(Mandatory)] [string[]] $DiskPaths,
@@ -482,25 +319,130 @@ function Get-VMDiskIoStats {
     }
 }
 
+# --- main ---
+
+# module alone is enough - no local hyper-v role needed to query remote hosts
+if (-not (Get-Module -ListAvailable -Name Hyper-V)) {
+    throw @'
+The Hyper-V PowerShell module is not installed, so Get-VM/Get-VHD/etc. are unavailable. Install it with one of:
+  - Windows Server: Install-WindowsFeature -Name Hyper-V-PowerShell
+  - Windows 10/11:  Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-Management-PowerShell -All
+  - Or Settings > Optional Features > "RSAT: Hyper-V Management Tools"
+Then re-run this script.
+'@
+}
+
+# hyper-v remoting rejects a bare username with a cryptic 'logonName' error - warn up front
+if ($Credential -and $Credential.UserName -notmatch '[\\@]') {
+    Write-Warning "-Credential '$($Credential.UserName)' has no domain qualifier. Hyper-V remote connections require 'DOMAIN\user' or 'user@domain.com' and will reject a bare username for every host."
+}
+
+if ($VMNameCsv) {
+    if (-not (Test-Path -LiteralPath $VMNameCsv)) { throw "VM list file not found: $VMNameCsv" }
+
+    # headered csv first (e.g. a previous export of this script): VMName column is the vm
+    # filter, ComputerName column doubles as the host list. plain list handled below.
+    $csvVmNames = @()
+    $csvHosts = @()
+    $nameColumn = $null
+    $rows = @()
+    try {
+        $rows = @(Import-Csv -LiteralPath $VMNameCsv -ErrorAction Stop)
+    } catch {
+        $rows = @()
+    }
+    if ($rows.Count -gt 0) {
+        $columns = @($rows[0].PSObject.Properties.Name)
+        foreach ($candidate in @('VMName', 'Name', 'VM')) {
+            if ($columns -contains $candidate) { $nameColumn = $candidate; break }
+        }
+        if ($nameColumn -and ($columns -contains 'ComputerName')) {
+            $csvHosts = @($rows | ForEach-Object { "$($_.ComputerName)".Trim() } | Where-Object { $_ } | Sort-Object -Unique)
+        }
+    }
+
+    if ($nameColumn) {
+        $csvVmNames = @($rows | ForEach-Object { "$($_.$nameColumn)".Trim() } | Where-Object { $_ })
+    } else {
+        try {
+            # one vm name per line, wildcards allowed; takes the first column and skips blanks
+            # and a header line, so both a plain list and a one-column csv with header work
+            $csvVmNames = @(Get-Content -LiteralPath $VMNameCsv -ErrorAction Stop | ForEach-Object {
+                ($_ -split ',')[0].Trim().Trim('"')
+            } | Where-Object { $_ -and $_ -notmatch '^(vmname|vm|name)$' })
+        } catch {
+            throw "Could not read VM list '$VMNameCsv': $($_.Exception.Message)"
+        }
+    }
+    if ($csvVmNames.Count -eq 0) { throw "VM list '$VMNameCsv' contained no VM names." }
+    # merge with -VMName if that was also given, otherwise the csv is the whole filter
+    if ($PSBoundParameters.ContainsKey('VMName')) {
+        $VMName = @($VMName) + $csvVmNames
+    } else {
+        $VMName = $csvVmNames
+    }
+    Write-Host "Loaded $($csvVmNames.Count) VM name(s) from '$VMNameCsv'." -ForegroundColor Cyan
+
+    if ($csvHosts.Count -gt 0) {
+        # explicit -ComputerName or -DiscoverHosts still wins over hosts found in the csv
+        if ($DiscoverHosts) {
+            Write-Host 'CSV has a ComputerName column but -DiscoverHosts was given - hosts will come from AD discovery.' -ForegroundColor Cyan
+        } elseif ($PSBoundParameters.ContainsKey('ComputerName')) {
+            Write-Host 'CSV has a ComputerName column but -ComputerName was given explicitly - using -ComputerName.' -ForegroundColor Cyan
+        } else {
+            $ComputerName = $csvHosts
+            Write-Host "Using $($csvHosts.Count) host(s) from the CSV ComputerName column: $($csvHosts -join ', ')" -ForegroundColor Cyan
+        }
+    }
+}
+
+if ($DiscoverHosts) {
+    if ($PSBoundParameters.ContainsKey('ComputerName')) {
+        Write-Warning "-ComputerName was also specified; ignoring it since -DiscoverHosts takes precedence."
+    }
+    Write-Host 'Discovering Hyper-V hosts from Active Directory (SPN-based, best-effort) ...' -ForegroundColor Cyan
+    $ComputerName = Find-HyperVHostsInAD -SearchBase $ADSearchBase -NamePrefix $ADHostNamePrefix -Server $ADServer -Credential $Credential
+    if (-not $ComputerName -or @($ComputerName).Count -eq 0) {
+        throw 'No Hyper-V hosts discovered via AD lookup. Verify -ADSearchBase (if used), confirm hosts have registered the "Microsoft Virtual Console Service" SPN or match -ADHostNamePrefix, or specify -ComputerName explicitly.'
+    }
+    Write-Host "Discovered $(@($ComputerName).Count) Hyper-V host(s): $($ComputerName -join ', ')" -ForegroundColor Cyan
+}
+
 $allResults = New-Object System.Collections.Generic.List[object]
 $skipped = New-Object System.Collections.Generic.List[string]
+$matchedFilters = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+$queriedHostCount = 0
 
 foreach ($computer in $ComputerName) {
     Write-Host "Querying Hyper-V host '$computer' ..." -ForegroundColor Cyan
 
-    $getVmParams = @{ ComputerName = $computer; Name = $VMName; ErrorAction = 'Stop' }
+    # get everything and filter here - Get-VM -Name with an exact name errors when the vm
+    # isn't on that host, which used to skip the whole host. a specific vm only lives on
+    # one host, so exact-name lists across many hosts broke
+    $getVmParams = @{ ComputerName = $computer; ErrorAction = 'Stop' }
     if ($Credential) { $getVmParams.Credential = $Credential }
 
     try {
-        $vms = Get-VM @getVmParams
+        $allVms = Get-VM @getVmParams
+        $queriedHostCount++
     } catch {
         Write-Warning "Could not query host '$computer': $($_.Exception.Message)"
         $skipped.Add("(host) $computer - $($_.Exception.Message)")
         continue
     }
 
-    if (-not $vms) {
-        Write-Warning "No VMs matched on host '$computer'."
+    $vms = @(foreach ($candidate in $allVms) {
+        foreach ($pattern in $VMName) {
+            if ($candidate.Name -like $pattern) {
+                [void]$matchedFilters.Add($pattern)
+                $candidate
+                break
+            }
+        }
+    })
+
+    if ($vms.Count -eq 0) {
+        Write-Host "  No matching VMs on '$computer'." -ForegroundColor DarkGray
         continue
     }
 
@@ -509,7 +451,7 @@ foreach ($computer in $ComputerName) {
         $warnings = New-Object System.Collections.Generic.List[string]
 
         try {
-            # ---- CPU / memory (single snapshot, refreshed by sampling loop below) ----
+            # cpu / memory demand (one snapshot unless -SampleUtilization)
             $cpuSamples = New-Object System.Collections.Generic.List[double]
             $memDemandSamples = New-Object System.Collections.Generic.List[double]
 
@@ -543,7 +485,7 @@ foreach ($computer in $ComputerName) {
                 $memDemandGB = ConvertBytesToGB (($memDemandSamples | Measure-Object -Maximum).Maximum)
             }
 
-            # ---- Static memory configuration ----
+            # static memory configuration
             $vmMemory = $null
             try {
                 $memParams = @{ VM = $vm; ErrorAction = 'Stop' }
@@ -552,7 +494,7 @@ foreach ($computer in $ComputerName) {
                 $warnings.Add('Could not read VMMemory configuration.')
             }
 
-            # ---- Generation / Trusted Launch inputs ----
+            # generation / trusted launch inputs
             $secureBootEnabled = $null
             if ($vm.Generation -eq 2) {
                 try {
@@ -568,17 +510,16 @@ foreach ($computer in $ComputerName) {
                 $sec = Get-VMSecurity -VM $vm -ErrorAction Stop
                 $tpmEnabled = [bool]$sec.TpmEnabled
             } catch {
-                # Get-VMSecurity requires Server 2016+/Hyper-V module version with shielded VM
-                # support. Not present -> leave $null, treated as "unknown" downstream.
+                # Get-VMSecurity needs server 2016+ module - leave $null, "unknown" downstream
             }
 
-            # ---- Guest OS (best effort) ----
+            # guest os (best effort)
             $osInfo = Get-VMGuestOSInfo -Name $vm.Name -ComputerName $computer -Credential $Credential
             if (-not $osInfo.OSName) {
                 $warnings.Add('Guest OS name unavailable - enable Data Exchange integration service inside the guest for endorsed-OS / Hybrid Benefit checks.')
             }
 
-            # ---- Disks ----
+            # disks
             $diskDrivesRaw = Get-VMHardDiskDrive -VM $vm -ErrorAction SilentlyContinue
             $diskPaths = $diskDrivesRaw | Where-Object { $_.Path } | Select-Object -ExpandProperty Path
             $ioStats = $null
@@ -631,6 +572,13 @@ foreach ($computer in $ComputerName) {
     }
 }
 
+if ($queriedHostCount -gt 0) {
+    $unmatchedFilters = @($VMName | Where-Object { -not $matchedFilters.Contains($_) })
+    if ($unmatchedFilters.Count -gt 0) {
+        Write-Warning "No VM on any queried host matched: $($unmatchedFilters -join ', ')"
+    }
+}
+
 if ($allResults.Count -eq 0) {
     Write-Warning 'No VM data collected. Nothing to write.'
     if ($skipped.Count -gt 0) {
@@ -641,12 +589,17 @@ if ($allResults.Count -eq 0) {
     return
 }
 
-if (-not (Test-Path -LiteralPath $OutputDirectory)) {
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+try {
+    if (-not (Test-Path -LiteralPath $OutputPath)) {
+        New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction Stop | Out-Null
+    }
+} catch {
+    throw "Could not create output directory '$OutputPath': $($_.Exception.Message)"
 }
 
-$csvPath = Join-Path $OutputDirectory "$OutputBaseName.csv"
-$jsonPath = Join-Path $OutputDirectory "$OutputBaseName.json"
+$stamp = Get-Date -Format 'yyyyMMdd_HHmm'
+$csvPath = Join-Path $OutputPath "Get-HyperVAzureSizingInfo_$stamp.csv"
+$jsonPath = Join-Path $OutputPath "Get-HyperVAzureSizingInfo_$stamp.json"
 
 $flattened = foreach ($r in $allResults) {
     $diskSizes  = ($r.Disks | ForEach-Object { $_.SizeGB })     -join '|'
@@ -696,15 +649,17 @@ $flattened = foreach ($r in $allResults) {
     }
 }
 
-$flattened | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+try {
+    $flattened | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+    # Out-File -Encoding UTF8 writes a BOM on ps5.1 and some json readers choke on it -
+    # write via .NET to skip the BOM
+    $jsonContent = $allResults | ConvertTo-Json -Depth 6
+    [System.IO.File]::WriteAllText($jsonPath, $jsonContent, (New-Object System.Text.UTF8Encoding($false)))
+} catch {
+    throw "Failed to write output files to '$OutputPath': $($_.Exception.Message)"
+}
 
-# Out-File -Encoding UTF8 writes a BOM in Windows PowerShell 5.1, which some JSON readers
-# choke on or misparse depending on how the file is subsequently handled/re-encoded.
-# Writing via .NET directly avoids the BOM so downstream ConvertFrom-Json is unambiguous.
-$jsonContent = $allResults | ConvertTo-Json -Depth 6
-[System.IO.File]::WriteAllText($jsonPath, $jsonContent, (New-Object System.Text.UTF8Encoding($false)))
-
-Write-Host "`nCollected $($allResults.Count) VM(s)." -ForegroundColor Green
+Write-Host "`nCollected $($allResults.Count) VM(s). Exported to:" -ForegroundColor Green
 Write-Host "CSV  : $csvPath" -ForegroundColor Green
 Write-Host "JSON : $jsonPath" -ForegroundColor Green
 
