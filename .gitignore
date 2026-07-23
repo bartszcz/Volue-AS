@@ -79,3 +79,5 @@ settings.local.json
 80-Apps/meyn-newsletter/temp/
 
 20-Endpoint/Intune/autopilot-migration/VolueMigration.ps1
+
+*.output.json
